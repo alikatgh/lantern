@@ -8,12 +8,12 @@
 // nothing delegated, nothing faked.
 #include "gfx.hpp"
 #include "lantern_font.h"
-#include <SDL.h>
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 namespace lt {
 
@@ -604,21 +604,104 @@ void Gfx::shadowBlob(Vec3 pos, float radius, float alpha) {
 
 // -------------------------------------------------------------------- 2D
 
+// Our own BMP reader — no SDL, works on every backend. Handles what asset
+// tools actually emit: BITMAPINFOHEADER+, 24-bit BI_RGB and 32-bit
+// BI_RGB/BI_BITFIELDS, bottom-up or top-down. Output is RGBA top-down.
+namespace {
+
+uint32_t bmpLe32(const uint8_t* p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+
+int maskShift(uint32_t m) { // bit offset of a channel mask; 0 mask -> -1
+    if (!m) return -1;
+    int s = 0;
+    while (!(m & 1)) { m >>= 1; s++; }
+    return s;
+}
+
+bool loadBmpFile(const std::string& path, int& w, int& h,
+                 std::vector<uint8_t>& rgba) {
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return false;
+    std::fseek(f, 0, SEEK_END);
+    long size = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    if (size < 54 || size > 256 * 1024 * 1024) {
+        std::fclose(f);
+        return false;
+    }
+    std::vector<uint8_t> d((size_t)size);
+    size_t got = std::fread(d.data(), 1, d.size(), f);
+    std::fclose(f);
+    if (got != d.size() || d[0] != 'B' || d[1] != 'M') return false;
+
+    const uint32_t dataOff = bmpLe32(&d[10]);
+    const uint32_t dibSize = bmpLe32(&d[14]);
+    if (dibSize < 40) return false; // BITMAPINFOHEADER or newer only
+    const int32_t bw = (int32_t)bmpLe32(&d[18]);
+    const int32_t bhRaw = (int32_t)bmpLe32(&d[22]);
+    const int bpp = d[28] | (d[29] << 8);
+    const uint32_t comp = bmpLe32(&d[30]);
+    const bool topDown = bhRaw < 0;
+    const int bh = topDown ? -bhRaw : bhRaw;
+    if (bw <= 0 || bh <= 0 || bw > 16384 || bh > 16384) return false;
+    if (!((bpp == 24 && comp == 0) || (bpp == 32 && comp == 0) ||
+          (bpp == 32 && comp == 3)))
+        return false;
+
+    // channel masks: BI_BITFIELDS stores them at file offset 54 (right
+    // after the 40-byte header, and at the same place inside v4/v5
+    // headers); plain 32-bit BI_RGB is BGRX by spec
+    uint32_t mr = 0x00ff0000, mg = 0x0000ff00, mb = 0x000000ff, ma = 0;
+    if (bpp == 32 && comp == 3) {
+        if (d.size() < 66) return false;
+        mr = bmpLe32(&d[54]);
+        mg = bmpLe32(&d[58]);
+        mb = bmpLe32(&d[62]);
+        if (dibSize >= 56 && d.size() >= 70) ma = bmpLe32(&d[66]);
+    }
+    const int sr = maskShift(mr), sg = maskShift(mg), sb = maskShift(mb),
+              sa = maskShift(ma);
+
+    const size_t rowBytes = ((size_t)bw * (bpp / 8) + 3) & ~(size_t)3;
+    if ((size_t)dataOff + rowBytes * bh > d.size()) return false;
+
+    w = bw;
+    h = bh;
+    rgba.assign((size_t)bw * bh * 4, 255);
+    for (int y = 0; y < bh; y++) {
+        const uint8_t* row = &d[dataOff + rowBytes * (topDown ? y : bh - 1 - y)];
+        uint8_t* out = &rgba[(size_t)y * bw * 4];
+        if (bpp == 24) {
+            for (int x = 0; x < bw; x++) { // BGR -> RGBA
+                out[x * 4 + 0] = row[x * 3 + 2];
+                out[x * 4 + 1] = row[x * 3 + 1];
+                out[x * 4 + 2] = row[x * 3 + 0];
+            }
+        } else {
+            for (int x = 0; x < bw; x++) {
+                uint32_t v = bmpLe32(&row[x * 4]);
+                out[x * 4 + 0] = (uint8_t)(sr >= 0 ? (v & mr) >> sr : 0);
+                out[x * 4 + 1] = (uint8_t)(sg >= 0 ? (v & mg) >> sg : 0);
+                out[x * 4 + 2] = (uint8_t)(sb >= 0 ? (v & mb) >> sb : 0);
+                out[x * 4 + 3] = (uint8_t)(sa >= 0 ? (v & ma) >> sa : 255);
+            }
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 int Gfx::loadTexture(const std::string& bmpPath, int* outW, int* outH) {
-    SDL_Surface* raw = SDL_LoadBMP(bmpPath.c_str());
-    if (!raw) {
-        std::fprintf(stderr, "load_texture: %s\n", SDL_GetError());
+    Tex t;
+    if (!loadBmpFile(bmpPath, t.w, t.h, t.px)) {
+        std::fprintf(stderr, "load_texture: cannot read %s\n",
+                     bmpPath.c_str());
         return -1;
     }
-    SDL_Surface* s = SDL_ConvertSurfaceFormat(raw, SDL_PIXELFORMAT_ABGR8888, 0);
-    SDL_FreeSurface(raw);
-    if (!s) return -1;
-    Tex t;
-    t.w = s->w;
-    t.h = s->h;
-    t.px.assign((uint8_t*)s->pixels,
-                (uint8_t*)s->pixels + (size_t)s->w * s->h * 4);
-    SDL_FreeSurface(s);
     // Retro color key: pure magenta (255,0,255) → transparent.
     bool keyed = false;
     for (size_t i = 0; i < t.px.size(); i += 4)
@@ -831,14 +914,40 @@ void Gfx::reset() {
 }
 
 void Gfx::screenshot(const std::string& bmpPath) {
-    SDL_Surface* s = SDL_CreateRGBSurfaceWithFormatFrom(
-        (void*)fb_.data(), SCREEN_W, SCREEN_H, 32, SCREEN_W * 4,
-        SDL_PIXELFORMAT_ABGR8888);
-    if (s) {
-        SDL_SaveBMP(s, bmpPath.c_str());
-        SDL_FreeSurface(s);
-        std::fprintf(stderr, "LANTERN_SHOT saved %s\n", bmpPath.c_str());
+    // our own writer: 24-bit bottom-up BI_RGB — opens everywhere
+    const int rowBytes = (SCREEN_W * 3 + 3) & ~3;
+    const uint32_t dataSize = (uint32_t)rowBytes * SCREEN_H;
+    uint8_t hdr[54] = {0};
+    hdr[0] = 'B'; hdr[1] = 'M';
+    const uint32_t fileSize = 54 + dataSize;
+    std::memcpy(&hdr[2], &fileSize, 4);
+    hdr[10] = 54;               // pixel data offset
+    hdr[14] = 40;               // BITMAPINFOHEADER
+    const int32_t bw = SCREEN_W, bh = SCREEN_H;
+    std::memcpy(&hdr[18], &bw, 4);
+    std::memcpy(&hdr[22], &bh, 4);
+    hdr[26] = 1;                // planes
+    hdr[28] = 24;               // bpp
+    std::memcpy(&hdr[34], &dataSize, 4);
+    FILE* f = std::fopen(bmpPath.c_str(), "wb");
+    if (!f) {
+        std::fprintf(stderr, "LANTERN_SHOT: cannot write %s\n",
+                     bmpPath.c_str());
+        return;
     }
+    std::fwrite(hdr, 1, sizeof hdr, f);
+    std::vector<uint8_t> row((size_t)rowBytes, 0);
+    for (int y = SCREEN_H - 1; y >= 0; y--) { // bottom-up
+        const uint8_t* src = &fb_[(size_t)y * SCREEN_W * 4];
+        for (int x = 0; x < SCREEN_W; x++) {  // RGBA -> BGR
+            row[x * 3 + 0] = src[x * 4 + 2];
+            row[x * 3 + 1] = src[x * 4 + 1];
+            row[x * 3 + 2] = src[x * 4 + 0];
+        }
+        std::fwrite(row.data(), 1, row.size(), f);
+    }
+    std::fclose(f);
+    std::fprintf(stderr, "LANTERN_SHOT saved %s\n", bmpPath.c_str());
 }
 
 } // namespace lt

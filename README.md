@@ -29,7 +29,12 @@ that combination is what lets the engine screenshot-test itself in CI.
   8×8 font. BMP textures with magenta color-key transparency.
 - **Audio**: 48 kHz 16-channel WAV mixer with looping.
 - **Input**: keyboard + game controller merged into one namespace, held and
-  edge-triggered, plus rumble. **Save data**: binary-safe per-name storage.
+  edge-triggered, plus rumble; **single-point touch, 3DS-style** (mouse on
+  desktop, real touch on iOS). **Save data**: binary-safe per-name storage.
+- **Runs on iPhone/iPad**: the platform layer has a native iOS backend —
+  Metal-presented (the rasterizer stays ours), UITouch, AVAudio.
+  `tools/build_ios_sim.sh` builds a simulator app; frames render
+  byte-identical to macOS.
 - Headroom to spare: ~10k lit mesh draw calls fit the 60 fps budget
   (`games/stress/`) — a real 3DS-class scene needs a few hundred.
 - **The dev loop**: save `main.lua` while the engine runs and it hot-reloads;

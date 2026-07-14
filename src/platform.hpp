@@ -11,10 +11,13 @@ namespace lt {
 
 // Single touch point, 3DS-style. Coordinates are in 400x240 screen space
 // (the backend undoes the letterbox/scale). While not down, x/y hold the
-// last touched position.
+// last touched position. seq increments on every touch-begin: a tap
+// shorter than one frame still changes seq, so the engine's _pressed edge
+// can't miss it (down alone is level-sampled and can).
 struct PlatformTouch {
     bool down = false;
     float x = 0, y = 0;
+    uint32_t seq = 0;
 };
 
 bool platInit(const char* title, int windowScale);

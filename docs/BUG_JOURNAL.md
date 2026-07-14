@@ -5,6 +5,14 @@ before reproducing anything.
 
 ## Patterns to scan for FIRST
 
+- **Level-sampled input misses sub-frame events.** Any input read as "is it
+  down NOW" loses presses shorter than one frame (fast clicks, synthetic
+  taps). Latch a sequence counter at the event source; edge-detect on the
+  counter, not the level.
+- **AVAudioEngine mixer inputs must be non-interleaved.** Connecting a node
+  with an interleaved format throws kAudioUnitErr_FormatNotSupported at
+  runtime. Give the render block its interleaved format at node init, but
+  connect with initStandardFormatWithSampleRate (the engine converts).
 - **Linear filtering + color-keyed textures = edge fringe.** Any pipeline
   that samples RGB of transparent texels must alpha-bleed at load time;
   alpha-test alone doesn't save you because RGB is sampled before the test.
@@ -15,6 +23,18 @@ before reproducing anything.
   every deferred/batched stage (sprite batch, blit) has flushed, not before.
 
 ## Chronological log (newest first — 5 lines max each)
+
+### 2026-07-14 — iOS: taps did nothing despite correct HUD coords (src/engine.cpp lt_touch_pressed)
+- Symptom: simulator tap updated lt_touch_x/y but the touchdemo ball never moved.
+- Cause: a synthetic tap's began+ended both landed between two frames — lt_touch_down never read 1, and _pressed edge-detected on that level.
+- Fix: PlatformTouch.seq increments per touch-begin; _pressed compares seq to the frame-start snapshot.
+- Lesson: level-sampled input misses sub-frame events; latch a sequence counter at the source.
+
+### 2026-07-14 — iOS: boot crashed in AVAudioEngine connect (src/platform_ios.mm platAudioStart)
+- Symptom: app aborted at launch, NSException kAudioUnitErr_FormatNotSupported (-10868).
+- Cause: connected the source node to mainMixerNode with an INTERLEAVED float format; mixer inputs only accept the standard non-interleaved layout.
+- Fix: render block keeps interleaved, connection uses initStandardFormatWithSampleRate; whole start wrapped in @try (audio failure = silent engine, never fatal).
+- Lesson: AVAudioEngine converts render-block formats but rejects interleaved on connections — and audio init must be crash-isolated from boot.
 
 ### 2026-07-14 — v0.6: bilinear + color key = magenta edge fringe (src/gfx.cpp loadTexture)
 - Symptom: after the software-rasterizer switch (bilinear default), keyed sprites (monk billboard) grew a pink outline.

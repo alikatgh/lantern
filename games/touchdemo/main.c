@@ -30,7 +30,8 @@ void touchdemo_init(void) {
 void touchdemo_update(double dt) {
     if (lt_touch_pressed()) g_pulse = 0;
     g_pulse += dt;
-    if (lt_touch_down()) {
+    /* _pressed catches taps shorter than one frame; _down tracks drags */
+    if (lt_touch_pressed() || lt_touch_down()) {
         g_tx = (lt_touch_x() / 400.0f - 0.5f) * FIELD_W;
         g_tz = (lt_touch_y() / 240.0f - 0.5f) * FIELD_D;
     }

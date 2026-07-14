@@ -1,6 +1,7 @@
 # Build trees
 build/
 build-dist/
+build-ios/
 
 # Packaged releases (published via GitHub Releases, not tracked)
 dist/

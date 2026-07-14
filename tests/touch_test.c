@@ -93,6 +93,20 @@ int main(void) {
     pushMouse(SDL_MOUSEBUTTONDOWN, 600, 360);
     lt_frame_poll();
     expect(lt_touch_pressed() == 1, "pressed fires on second tap");
+    pushMouse(SDL_MOUSEBUTTONUP, 600, 360);
+    lt_frame_poll();
+
+    /* sub-frame tap: down AND up land between two polls. down never reads
+     * 1, but pressed must still fire once — found live on the iOS
+     * simulator, where a synthetic tap is shorter than a frame. */
+    pushMouse(SDL_MOUSEBUTTONDOWN, 300, 180);
+    pushMouse(SDL_MOUSEBUTTONUP, 300, 180);
+    lt_frame_poll();
+    expect(lt_touch_down() == 0, "sub-frame tap: down already released");
+    expect(lt_touch_pressed() == 1, "sub-frame tap: pressed still fires");
+    expectNear(lt_touch_x(), 100, 1.5f, "sub-frame tap x");
+    lt_frame_poll();
+    expect(lt_touch_pressed() == 0, "sub-frame tap: pressed is one frame");
 
     lt_shutdown();
     if (g_fail) return 1;

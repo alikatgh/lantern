@@ -187,6 +187,9 @@ handled.</p>
   <tr><td>lt.quit()</td><td>Request a clean exit (the loop ends this frame).</td></tr>
   <tr><td>lt.escape_quits(false)</td><td>By default the Escape key quits (dev convenience); disable it to run your own pause menu on <code>lt.pressed("escape")</code>.</td></tr>
   <tr><td>lt.rumble(low, high, ms)</td><td>Rumble the pad (no-op without one). Intensities 0..1.</td></tr>
+  <tr><td>lt.touch()</td><td>Touch position → <code>x, y</code> in 400×240 screen pixels (letterbox undone, clamped). Keeps the last touched position while nothing touches.</td></tr>
+  <tr><td>lt.touch_down()</td><td>Is the screen touched right now? One point, 3DS-style — deliberately not multitouch. On desktop the left mouse button is the finger.</td></tr>
+  <tr><td>lt.touch_pressed()</td><td>Touch began this frame. Latched, so even a tap shorter than one frame fires it exactly once.</td></tr>
 </table>
 
 <h2 id="api-save">API — saves &amp; misc</h2>

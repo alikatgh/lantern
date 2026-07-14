@@ -36,7 +36,7 @@ struct Engine {
     long frame = 0;
     double fixedDt = 0;               // >0 = deterministic timing mode
     std::unordered_map<std::string, bool> prevDown; // for _pressed edges
-    bool prevTouchDown = false;                     // for lt_touch_pressed
+    uint32_t prevTouchSeq = 0;                      // for lt_touch_pressed
 };
 Engine E;
 
@@ -88,7 +88,7 @@ int lt_frame_poll(void) {
     // snapshot last frame's state for _pressed edge detection
     for (const char* name : kInputNames)
         E.prevDown[name] = lt_input_down(name) != 0;
-    E.prevTouchDown = lt::platTouch().down;
+    E.prevTouchSeq = lt::platTouch().seq;
     if (!lt::platPoll()) E.quit = true;
     // default dev behavior: Escape quits; lt_escape_quits(0) opts out
     if (E.escapeQuits && lt::platInputDown("escape") && !E.prevDown["escape"])
@@ -243,7 +243,9 @@ void lt_rumble(float low, float high, int duration_ms) {
 int lt_touch_down(void) { return lt::platTouch().down ? 1 : 0; }
 
 int lt_touch_pressed(void) {
-    return (lt::platTouch().down && !E.prevTouchDown) ? 1 : 0;
+    // seq-based, not level-based: a tap shorter than one frame (fast click,
+    // synthetic tap) still bumps seq even though down is already false again
+    return lt::platTouch().seq != E.prevTouchSeq ? 1 : 0;
 }
 
 float lt_touch_x(void) { return lt::platTouch().x; }

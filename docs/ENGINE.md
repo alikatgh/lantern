@@ -95,6 +95,9 @@ ch = lt.play(s [,volume, loop])        -- returns channel (-1 if none free)
 lt.stop(ch)  ·  lt.volume(v)           -- master 0..1
 -- input / misc
 lt.key(name)  ·  lt.pressed(name)      -- held / went-down-this-frame
+lt.touch()                             -- x, y in 400x240 (last position)
+lt.touch_down()  ·  lt.touch_pressed() -- single touch, 3DS-style; desktop:
+                                       --   left mouse button is the finger
 lt.gamepad()                           -- pad connected?
 lt.quit()                              -- request a clean exit
 lt.escape_quits(false)                 -- take over the Escape key (pause menus)

@@ -27,6 +27,7 @@ struct Plat {
     // mouse-as-touch: raw window coords, converted to screen coords lazily
     // in platTouch() (the letterbox can change with every window resize)
     bool touchDown = false;
+    uint32_t touchSeq = 0; // bumped per press — sub-frame taps stay visible
     float touchWinX = 0, touchWinY = 0;
 };
 Plat P;
@@ -151,6 +152,7 @@ bool platPoll() {
         if (e.type == SDL_MOUSEBUTTONDOWN &&
             e.button.button == SDL_BUTTON_LEFT) {
             P.touchDown = true;
+            P.touchSeq++;
             P.touchWinX = (float)e.button.x;
             P.touchWinY = (float)e.button.y;
         }
@@ -211,6 +213,7 @@ void platRumble(float low, float high, int durationMs) {
 PlatformTouch platTouch() {
     PlatformTouch t;
     t.down = P.touchDown;
+    t.seq = P.touchSeq;
     if (!P.win || !P.ren) return t;
     // window points -> renderer output pixels (HiDPI) -> undo the letterbox
     int ww, wh, dw, dh;

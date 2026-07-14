@@ -34,6 +34,9 @@ jobs:
       - name: Touch API test
         run: ctest --test-dir build --output-on-failure
 
+      - name: iOS simulator build
+        run: ./tools/build_ios_sim.sh
+
       - name: Screenshot test (demo game)
         run: |
           mkdir -p shots
