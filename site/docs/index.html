@@ -36,6 +36,7 @@
   <a href="#install">Install &amp; build</a>
   <a href="#first-game">Your first game</a>
   <a href="#concepts">Core concepts</a>
+  <a href="#wick">wick, the native language</a>
   <h4>Lua API</h4>
   <a href="#api-frame">Frame &amp; screen</a>
   <a href="#api-3d">3D scene</a>
@@ -116,6 +117,55 @@ line; fix it, save, and play resumes.</p>
   non-negative int handles; <code>-1</code> (or a Lua error) means failure.
   Colors are floats 0..1 everywhere.</li>
 </ul>
+
+<h2 id="wick">wick — lantern's own language</h2>
+<p>lantern ships its own scripting language. <b>wick</b> keeps Lua's size
+and feel — a game is still a folder, now with <code>main.wick</code>, and
+the host prefers it over <code>main.lua</code> — but the sharp edges are
+designed out at the language level:</p>
+<ul>
+  <li><b>Static types with optionals.</b> <code>lt.load_save()</code>
+  returns <code>str?</code>; using it unchecked is a <i>compile error</i>.
+  Handle it with <code>??</code> or narrow with
+  <code>if x != nil { }</code>. The classic "empty save file crashes the
+  game" bug cannot be written.</li>
+  <li><b>Locals only.</b> Assigning an undeclared name doesn't create a
+  silent global — it doesn't compile.</li>
+  <li><b>Type-checked engine calls.</b> Every <code>lt.*</code> signature
+  is known to the compiler; wrong arity or types show on the error screen
+  at load, with a line number.</li>
+  <li><b>0-based indexing</b>, <code>continue</code>, strict
+  <code>bool</code> conditions (no truthiness), <code>str+str</code>-only
+  concatenation (<code>"x" + 1</code> doesn't compile — use
+  <code>str(1)</code>).</li>
+  <li><b>Deterministic by default.</b> <code>rand()</code>/<code>srand()</code>
+  are a fixed xorshift — same sequence on every machine, made for
+  screenshot-tested CI.</li>
+  <li><b>No GC hitches.</b> Collection runs only between frames, never
+  mid-draw. No JIT anywhere — iOS-legal by construction.</li>
+</ul>
+<pre><code><span class="c">// a complete wick game — note the enforced ?? fallbacks</span>
+<span class="k">let</span> best = num(lt.load_save(<span class="s">"best"</span>) ?? <span class="s">""</span>) ?? 0
+
+<span class="k">fn</span> update(dt: num) {
+  <span class="k">if</span> lt.pressed(<span class="s">"z"</span>) {
+    best = best + 1
+    lt.save(<span class="s">"best"</span>, str(best))
+  }
+}
+
+<span class="k">fn</span> draw() {
+  lt.clear(0.1, 0.1, 0.2)
+  lt.print(<span class="s">"BEST "</span> + str(best), 4, 4, 1, 1, 1, 1)
+}</code></pre>
+<p>The compiler and VM are ~2k dependency-free lines in
+<code>wick/</code>, same zlib license. Full language reference:
+<a href="https://github.com/alikatgh/lantern/blob/main/docs/WICK.md">docs/WICK.md</a>.
+Kora Night exists in <i>both</i> languages — <code>games/showcase</code>
+(Lua) and <code>games/showcase_wick</code> — deliberately kept as separate
+side-by-side projects so you can compare them line for line. The Lua API
+below maps 1:1 to wick (<code>lt.draw(...)</code> is the same call in
+both).</p>
 
 <h2 id="api-frame">API — frame &amp; screen</h2>
 <table class="api">
@@ -277,6 +327,8 @@ binary actually renders a frame.</p>
 <h2 id="samples">Sample games</h2>
 <table class="api">
   <tr><th>Folder</th><th>What it shows</th></tr>
+  <tr><td>games/showcase_wick</td><td>KORA NIGHT in <b>wick</b> — the same game as games/showcase, in lantern's own language; the pair evolves together for comparison.</td></tr>
+  <tr><td>games/wicklab</td><td>The first wick program: typed lists, optionals, user functions, deterministic starfield.</td></tr>
   <tr><td>games/showcase</td><td>KORA NIGHT — a complete arcade game (title → play → results) where the four point lights are the mechanic. Audio, rumble, saves, ~200 lines.</td></tr>
   <tr><td>games/room</td><td>THE SHOP — the ALBW-style interior: textured floor/walls/carpet, keyframe-animated hero (<code>lt.draw_lerp</code>), blob shadows, warm point lights, hearts HUD.</td></tr>
   <tr><td>games/demo</td><td>Every feature in one monastery-at-dusk scene: fog, point lights, OBJ, billboards, textured custom meshes, HUD.</td></tr>

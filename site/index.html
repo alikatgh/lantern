@@ -56,7 +56,7 @@
     <div class="stat"><b>400×240</b><span>one screen, integer-upscaled</span></div>
     <div class="stat"><b>~40 calls</b><span>the entire API surface</span></div>
     <div class="stat"><b>12,400</b><span>software draw calls at 60 fps</span></div>
-    <div class="stat"><b>2</b><span>languages: Lua and C</span></div>
+    <div class="stat"><b>3</b><span>languages: wick, Lua, C</span></div>
   </div>
 
   <section id="features">
@@ -101,6 +101,12 @@
         <p>A 48 kHz 16-channel WAV mixer with looping. Binary-safe save data.
         Keyboard and gamepad merged into one namespace — held and
         edge-triggered — plus rumble.</p>
+      </div>
+      <div class="cell">
+        <h3>wick — its own language</h3>
+        <p>Statically typed, Lua-small, ~2k lines, zero deps. Optionals make
+        nil bugs compile errors; engine calls are type-checked; GC runs only
+        between frames. Lua and C remain first-class.</p>
       </div>
       <div class="cell">
         <h3>A real dev loop</h3>

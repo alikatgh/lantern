@@ -1,0 +1,256 @@
+// KORA NIGHT — the wick build. A deliberate 1:1 port of games/showcase
+// (the Lua build): both projects live side by side and evolve together so
+// the two languages stay comparable on the same real game.
+//
+// What wick changes about this code vs the Lua original:
+//   - lamp state is typed parallel lists (no record tables in v0.1)
+//   - the hi-score load literally cannot skip the empty-save case
+//   - lt.* calls are arity/type-checked at compile time
+//   - rand()/srand() are deterministic across machines
+//
+// Keep the butter lamps lit. Arrows move. Z relights. Esc quits.
+
+let AUTO = env("SHOWCASE_AUTO") != nil   // deterministic self-play (CI)
+if AUTO { srand(7) }
+
+let ground    = lt.plane(12)
+let drum      = lt.cylinder(20)
+let dome      = lt.sphere(14)
+let spire     = lt.cone(12)
+let cube      = lt.cube()
+let mountains = lt.load_mesh("mountains.obj")
+let monk      = lt.load_texture("monk.bmp")
+let bell      = lt.load_sound("bell.wav")
+let whoosh    = lt.load_sound("whoosh.wav")
+
+// one lamp per point-light slot (0..3): typed parallel lists
+let lamp_x: list<num> = []
+let lamp_z: list<num> = []
+let lamp_lit: list<bool> = []
+push(lamp_x, 3.4)  push(lamp_z, 3.4)  push(lamp_lit, true)
+push(lamp_x, -3.4) push(lamp_z, 3.4)  push(lamp_lit, true)
+push(lamp_x, -3.4) push(lamp_z, -3.4) push(lamp_lit, true)
+push(lamp_x, 3.4)  push(lamp_z, -3.4) push(lamp_lit, true)
+
+let ROUND = 60.0
+if AUTO { ROUND = 8.0 }
+
+let state = "title"                       // title | play | over
+let t = 0.0
+let px = 0.0
+let pz = 5.2
+let score = 0
+let timer = ROUND
+let wind_in = 3.0
+// the line below is the whole reason wick exists: an interrupted save
+// leaves a 0-byte file, load_save returns "", and the compiler FORCES
+// both fallbacks (the Lua build crashed on frame 1 until it was fixed)
+let best = num(lt.load_save("koranight_wick_best") ?? "") ?? 0
+
+fn reset_lamps() {
+  for i in 0..4 { lamp_lit[i] = true }
+}
+
+fn start_round() {
+  state = "play"
+  t = 0
+  score = 0
+  timer = ROUND
+  wind_in = 3.0
+  px = 0
+  pz = 5.2
+  reset_lamps()
+}
+
+fn nearest_unlit(): num {          // lamp index, or -1 when all are lit
+  let bi = 0 - 1
+  let bd = 0.0
+  for i in 0..4 {
+    if not lamp_lit[i] {
+      let dx = lamp_x[i] - px
+      let dz = lamp_z[i] - pz
+      let d = dx * dx + dz * dz
+      if bi < 0 or d < bd {
+        bi = i
+        bd = d
+      }
+    }
+  }
+  return bi
+}
+
+fn dist2_to(i: num): num {
+  let dx = lamp_x[i] - px
+  let dz = lamp_z[i] - pz
+  return dx * dx + dz * dz
+}
+
+fn relight(i: num) {
+  lamp_lit[i] = true
+  score = score + 1
+  lt.play(bell, 0.8, 0)
+  lt.rumble(0.3, 0.6, 120)
+}
+
+fn blow_one_out() {
+  let lit_count = 0
+  for i in 0..4 { if lamp_lit[i] { lit_count = lit_count + 1 } }
+  if lit_count == 0 { return }
+  let pick = floor(rand() * lit_count)
+  for i in 0..4 {
+    if lamp_lit[i] {
+      if pick == 0 {
+        lamp_lit[i] = false
+        lt.play(whoosh, 0.7, 0)
+        lt.rumble(0.5, 0.2, 200)
+        return
+      }
+      pick = pick - 1
+    }
+  }
+}
+
+fn update(dt: num) {
+  t = t + dt
+  if state == "title" {
+    if lt.pressed("z") or lt.pressed("return") or (AUTO and t > 0.5) {
+      start_round()
+    }
+    return
+  }
+  if state == "over" {
+    if lt.pressed("z") or lt.pressed("return") { state = "title" }
+    return
+  }
+
+  // play
+  timer = timer - dt
+  if timer <= 0 {
+    timer = 0
+    state = "over"
+    if score > best {
+      best = score
+      lt.save("koranight_wick_best", str(best))
+    }
+    return
+  }
+
+  // wind: gusts come faster as the round goes on
+  wind_in = wind_in - dt
+  if wind_in <= 0 {
+    wind_in = 1.2 + rand() * (2.6 * (timer / ROUND) + 0.4)
+    blow_one_out()
+  }
+
+  // movement (or autopilot toward the nearest dark lamp)
+  let dx = 0.0
+  let dz = 0.0
+  if AUTO {
+    let i = nearest_unlit()
+    if i >= 0 {
+      dx = lamp_x[i] - px
+      dz = lamp_z[i] - pz
+      let l = sqrt(dx * dx + dz * dz)
+      if l > 0.01 {
+        dx = dx / l
+        dz = dz / l
+      }
+    }
+  } else {
+    if lt.key("left")  { dx = dx - 1 }
+    if lt.key("right") { dx = dx + 1 }
+    if lt.key("up")    { dz = dz - 1 }
+    if lt.key("down")  { dz = dz + 1 }
+  }
+  if dx != 0 or dz != 0 {
+    let l = sqrt(dx * dx + dz * dz)
+    px = max(0 - 6.5, min(6.5, px + dx / l * 4.2 * dt))
+    pz = max(0 - 6.5, min(6.5, pz + dz / l * 4.2 * dt))
+  }
+  // keep out of the stupa
+  let d = sqrt(px * px + pz * pz)
+  if d < 2.2 and d > 0.01 {
+    px = px / d * 2.2
+    pz = pz / d * 2.2
+  }
+
+  // relight when close
+  let i = nearest_unlit()
+  if i >= 0 {
+    if dist2_to(i) < 1.1 {
+      if AUTO or lt.pressed("z") { relight(i) }
+    }
+  }
+}
+
+fn draw_world() {
+  lt.clear(0.10, 0.09, 0.20)
+  lt.fog(7, 24, 0.10, 0.09, 0.20)
+  lt.light(0.4, 0 - 1, 0 - 0.3, 0.22)
+
+  for i in 0..4 {
+    if lamp_lit[i] {
+      let fl = 3.6 + 0.4 * sin(t * 9 + i * 2.1)
+      lt.point_light(i, lamp_x[i], 0.8, lamp_z[i], fl, 1.0, 0.70, 0.28)
+    } else {
+      lt.point_light(i, 0, 0, 0, 0, 0, 0, 0)
+    }
+    lt.draw(drum, lamp_x[i], 0.25, lamp_z[i], 0, 0, 0,
+            0.4, 0.5, 0.4, 0.5, 0.42, 0.3)
+    if lamp_lit[i] {
+      lt.draw(cube, lamp_x[i], 0.62, lamp_z[i], 0, t * 3, 0,
+              0.14, 0.2, 0.14, 1.0, 0.8, 0.3)
+    }
+  }
+
+  lt.camera(px * 0.35, 5.2, pz * 0.35 + 8.5, px * 0.6, 0.4, pz * 0.6, 52)
+
+  lt.draw(mountains, 0, 0 - 0.15, 0, 0, 0, 0, 60, 10, 60, 0.30, 0.28, 0.42)
+  lt.draw(ground, 0, 0, 0, 0, 0, 0, 15, 1, 15, 0.42, 0.40, 0.40)
+
+  lt.draw(drum, 0, 0.30, 0, 0, 0, 0, 3.0, 0.6, 3.0, 0.88, 0.86, 0.84)
+  lt.draw(dome, 0, 1.30, 0, 0, 0, 0, 2.2, 1.8, 2.2, 0.94, 0.93, 0.90)
+  lt.draw(spire, 0, 2.75, 0, 0, 0, 0, 0.8, 1.2, 0.8, 0.98, 0.80, 0.25)
+
+  lt.shadow(px, 0.02, pz, 0.42, 0.4)
+  lt.billboard(monk, px, 0.75, pz, 1.0, 1.5)
+}
+
+fn draw() {
+  draw_world()
+
+  if state == "title" {
+    lt.rect(0, 78, lt.W, 46, 0.03, 0.03, 0.06, 0.75)
+    lt.print("KORA NIGHT (WICK)", lt.W / 2 - 68, 88, 0.98, 0.80, 0.25, 1)
+    lt.print("KEEP THE BUTTER LAMPS LIT", lt.W / 2 - 100, 102, 1, 1, 1, 0.9)
+    if floor(t * 2) % 2 == 0 {
+      lt.print("PRESS Z", lt.W / 2 - 28, 112, 1, 1, 1, 0.8)
+    }
+    lt.print("BEST: " + str(best), 4, lt.H - 11, 0.7, 0.85, 0.7, 0.9)
+  } elif state == "play" {
+    lt.rect(0, 0, lt.W, 13, 0.03, 0.03, 0.06, 0.6)
+    lt.print("LAMPS RELIT: " + str(score), 4, 3, 1, 1, 1, 0.95)
+    lt.print("TIME " + str(ceil(timer)), lt.W - 8 * 8 - 4, 3,
+             0.98, 0.80, 0.25, 0.95)
+    let i = nearest_unlit()
+    if i >= 0 {
+      if dist2_to(i) < 1.1 {
+        lt.print("Z: RELIGHT", lt.W / 2 - 40, lt.H - 24, 1, 1, 0.6, 1)
+      }
+    }
+  } else {
+    lt.rect(0, 74, lt.W, 60, 0.03, 0.03, 0.06, 0.8)
+    lt.print("TIME UP", lt.W / 2 - 28, 84, 0.98, 0.80, 0.25, 1)
+    lt.print("LAMPS RELIT: " + str(score), lt.W / 2 - 60, 98, 1, 1, 1, 1)
+    if score >= best {
+      if best > 0 {
+        lt.print("NEW BEST!", lt.W / 2 - 36, 108, 0.7, 0.85, 0.7, 1)
+      } else {
+        lt.print("BEST: " + str(best), lt.W / 2 - 36, 108, 0.7, 0.85, 0.7, 1)
+      }
+    } else {
+      lt.print("BEST: " + str(best), lt.W / 2 - 36, 108, 0.7, 0.85, 0.7, 1)
+    }
+    lt.print("Z: AGAIN", lt.W / 2 - 32, 120, 1, 1, 1, 0.8)
+  }
+}

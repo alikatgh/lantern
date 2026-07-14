@@ -14,8 +14,13 @@ import struct
 from gen_demo_assets import write_bmp, write_bell, write_mountains, monk_px
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.normpath(os.path.join(HERE, "..", "games", "showcase"))
-os.makedirs(OUT, exist_ok=True)
+# the Lua and wick builds of Kora Night are deliberately separate projects
+# (they evolve side by side for language comparison) but share these assets
+OUTS = [os.path.normpath(os.path.join(HERE, "..", "games", d))
+        for d in ("showcase", "showcase_wick")]
+for _o in OUTS:
+    os.makedirs(_o, exist_ok=True)
+OUT = OUTS[0]
 
 def write_whoosh(path):
     rate, dur = 22050, 0.7
@@ -36,8 +41,9 @@ def write_whoosh(path):
                                       2, 16))
         f.write(b"data" + struct.pack("<I", len(frames)) + frames)
 
-write_bmp(os.path.join(OUT, "monk.bmp"), 16, 24, monk_px)
-write_bell(os.path.join(OUT, "bell.wav"))
-write_mountains(os.path.join(OUT, "mountains.obj"))
-write_whoosh(os.path.join(OUT, "whoosh.wav"))
-print("wrote monk.bmp bell.wav mountains.obj whoosh.wav →", OUT)
+for OUT in OUTS:
+    write_bmp(os.path.join(OUT, "monk.bmp"), 16, 24, monk_px)
+    write_bell(os.path.join(OUT, "bell.wav"))
+    write_mountains(os.path.join(OUT, "mountains.obj"))
+    write_whoosh(os.path.join(OUT, "whoosh.wav"))
+    print("wrote monk.bmp bell.wav mountains.obj whoosh.wav →", OUT)

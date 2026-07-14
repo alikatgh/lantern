@@ -438,6 +438,11 @@ bool run(VM& vm, int protoIdx, const Value* args, int argc, Value& out,
 // flat math/util natives every wick program gets
 static uint64_t g_rng = 0x9E3779B97F4A7C15ull;
 static Value nFloor(VM&, const Value* a, int) { return Value::num(std::floor(a[0].d)); }
+static Value nCeil(VM&, const Value* a, int) { return Value::num(std::ceil(a[0].d)); }
+static Value nEnv(VM& vm, const Value* a, int) {
+    const char* v = std::getenv(getStr(a[0]).c_str());
+    return v ? makeStr(vm, v) : Value::nil();
+}
 static Value nAbs(VM&, const Value* a, int) { return Value::num(std::fabs(a[0].d)); }
 static Value nMin(VM&, const Value* a, int) { return Value::num(std::fmin(a[0].d, a[1].d)); }
 static Value nMax(VM&, const Value* a, int) { return Value::num(std::fmax(a[0].d, a[1].d)); }
@@ -463,6 +468,8 @@ static Value nCheck(VM& vm, const Value* a, int) {
 static void installBuiltins(VM* vm) {
     std::string e;
     addNative(vm, nullptr, "floor(num): num", nFloor, e);
+    addNative(vm, nullptr, "ceil(num): num", nCeil, e);
+    addNative(vm, nullptr, "env(str): str?", nEnv, e);
     addNative(vm, nullptr, "abs(num): num", nAbs, e);
     addNative(vm, nullptr, "min(num, num): num", nMin, e);
     addNative(vm, nullptr, "max(num, num): num", nMax, e);

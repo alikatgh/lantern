@@ -127,5 +127,13 @@ expect_error "undeclared variable" "unknown variable" \
 expect_error "nil needs annotation" "annotate" \
 'let x = nil'
 
+# ---------- 3. the real game: wick Kora Night self-plays ----------
+if SHOWCASE_AUTO=1 LANTERN_FIXED_DT=1 LANTERN_SHOT="$TMP/kn" \
+       LANTERN_SHOT_FRAME=120 "$BIN" games/showcase_wick 2>"$TMP/err.txt"; then
+    ok "showcase_wick self-play"
+else
+    bad "showcase_wick self-play"
+fi
+
 echo "wick tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

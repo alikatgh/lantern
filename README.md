@@ -95,8 +95,12 @@ fn draw() {
 ```
 
 Full language reference: [docs/WICK.md](docs/WICK.md). Try it:
-`./build/lantern games/wicklab`. Test suite: `tests/wick_test.sh` (runs in
-CI — including eight programs that MUST fail to compile).
+`./build/lantern games/wicklab`, or play the real thing:
+`./build/lantern games/showcase_wick` — **Kora Night ported to wick**,
+kept as a separate project beside the Lua build (`games/showcase`) on
+purpose: the two evolve together so the languages stay comparable on the
+same game. Test suite: `tests/wick_test.sh` (runs in CI — including eight
+programs that MUST fail to compile, plus the wick Kora Night self-play).
 
 ## Make a game (Lua)
 
