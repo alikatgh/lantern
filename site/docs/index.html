@@ -24,6 +24,7 @@
       <a href="../#features">Features</a>
       <a href="../#games">Games</a>
       <a href="./" class="active">Docs</a>
+      <a href="https://github.com/alikatgh/lantern">GitHub</a>
     </nav>
   </div>
 </header>
@@ -60,15 +61,17 @@ is about 40 calls; you can read this page top to bottom in one sitting.</p>
 
 <h2 id="install">Install &amp; build</h2>
 <pre><code><span class="c"># macOS (Linux: same packages via your package manager)</span>
+git clone https://github.com/alikatgh/lantern &amp;&amp; cd lantern
 brew install sdl2 lua cmake pkg-config
 cmake -B build &amp;&amp; cmake --build build -j8
 
 ./build/lantern games/showcase   <span class="c"># KORA NIGHT — complete mini-game</span>
 ./build/lantern games/demo       <span class="c"># every feature in one scene</span>
 ./build/lantern games/template   <span class="c"># the copy-me starter</span></code></pre>
-<p>Or grab the prebuilt bundle — the engine binary with Lua statically
-linked and SDL bundled, no dependencies to install. See
-<a href="#dist">Distribution</a>.</p>
+<p>Or grab the prebuilt bundle from the
+<a href="https://github.com/alikatgh/lantern/releases">releases page</a> —
+the engine binary with Lua statically linked and SDL bundled, no
+dependencies to install. See <a href="#dist">Distribution</a>.</p>
 
 <h2 id="first-game">Your first game</h2>
 <p>A lantern game is a folder containing <code>main.lua</code>. Copy
