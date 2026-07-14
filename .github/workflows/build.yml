@@ -31,6 +31,9 @@ jobs:
       - name: Build
         run: cmake --build build -j3
 
+      - name: Touch API test
+        run: ctest --test-dir build --output-on-failure
+
       - name: Screenshot test (demo game)
         run: |
           mkdir -p shots

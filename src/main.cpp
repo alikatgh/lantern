@@ -290,6 +290,23 @@ static int l_time(lua_State* L) {
     return 1;
 }
 
+static int l_touch_down(lua_State* L) {
+    lua_pushboolean(L, lt_touch_down());
+    return 1;
+}
+
+static int l_touch_pressed(lua_State* L) {
+    lua_pushboolean(L, lt_touch_pressed());
+    return 1;
+}
+
+// lt.touch() → x, y (400x240 screen coords, last touched position)
+static int l_touch(lua_State* L) {
+    lua_pushnumber(L, lt_touch_x());
+    lua_pushnumber(L, lt_touch_y());
+    return 2;
+}
+
 static void registerAPI(lua_State* L) {
     static const luaL_Reg fns[] = {
         {"clear", l_clear},         {"camera", l_camera},
@@ -304,6 +321,8 @@ static void registerAPI(lua_State* L) {
         {"sprite", l_sprite},       {"sprite_ex", l_sprite_ex},
         {"sprite_uv", l_sprite_uv}, {"print", l_print},
         {"key", l_key},             {"pressed", l_pressed},
+        {"touch", l_touch},         {"touch_down", l_touch_down},
+        {"touch_pressed", l_touch_pressed},
         {"gamepad", l_gamepad},     {"quit", l_quit},
         {"escape_quits", l_escape_quits},
         {"rumble", l_rumble},

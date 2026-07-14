@@ -43,3 +43,18 @@ add_executable(lantern_hello_c games/hello_c/main.c)
 set_target_properties(lantern_hello_c PROPERTIES C_STANDARD 99)
 target_link_libraries(lantern_hello_c lantern_core)
 target_compile_options(lantern_hello_c PRIVATE -Wall -Wextra)
+
+# Touch demo — C game shared with the iOS app (its host drives the same
+# touchdemo_* functions from a display-link loop).
+add_executable(lantern_touchdemo games/touchdemo/main.c)
+set_target_properties(lantern_touchdemo PROPERTIES C_STANDARD 99)
+target_link_libraries(lantern_touchdemo lantern_core)
+target_compile_options(lantern_touchdemo PRIVATE -Wall -Wextra)
+
+# ABI-level touch test: injects SDL events, asserts mapping + edges.
+enable_testing()
+add_executable(lantern_touch_test tests/touch_test.c)
+set_target_properties(lantern_touch_test PROPERTIES C_STANDARD 99)
+target_include_directories(lantern_touch_test PRIVATE ${SDL2_INCLUDE_DIRS})
+target_link_libraries(lantern_touch_test lantern_core)
+add_test(NAME touch COMMAND lantern_touch_test)
