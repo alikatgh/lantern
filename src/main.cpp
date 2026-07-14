@@ -395,8 +395,15 @@ static void drawErrorScreen() {
     }
 }
 
+int runWickHost(const std::string& gameDir); // wick_host.cpp
+
 int main(int argc, char** argv) {
     g_gameDir = argc > 1 ? argv[1] : "games/demo";
+
+    // a game written in wick takes precedence over Lua
+    struct stat st{};
+    if (stat((g_gameDir + "/main.wick").c_str(), &st) == 0)
+        return runWickHost(g_gameDir);
 
     if (!lt_boot("lantern", 3)) return 1;
 

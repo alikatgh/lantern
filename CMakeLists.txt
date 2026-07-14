@@ -31,11 +31,19 @@ target_link_directories(lantern_core PUBLIC ${SDL2_LIBRARY_DIRS})
 target_link_libraries(lantern_core PUBLIC ${SDL2_LIBRARIES})
 target_compile_options(lantern_core PRIVATE -Wall -Wextra)
 
-# The bundled Lua host: `lantern <game_dir>` runs <game_dir>/main.lua.
-add_executable(lantern src/main.cpp)
+# wick — lantern's own scripting language (compiler + VM, no dependencies).
+add_library(wick STATIC
+    wick/wick_front.cpp
+    wick/wick_vm.cpp)
+target_include_directories(wick PUBLIC wick)
+target_compile_options(wick PRIVATE -Wall -Wextra)
+
+# The bundled host: `lantern <game_dir>` runs <game_dir>/main.wick if
+# present, else main.lua.
+add_executable(lantern src/main.cpp src/wick_host.cpp)
 target_include_directories(lantern PRIVATE ${LUA_INCLUDE_DIRS})
 target_link_directories(lantern PRIVATE ${LUA_LIBRARY_DIRS})
-target_link_libraries(lantern lantern_core ${LUA_LINK})
+target_link_libraries(lantern lantern_core wick ${LUA_LINK})
 target_compile_options(lantern PRIVATE -Wall -Wextra)
 
 # Pure-C sample game — proves the ABI compiles and links from C.
@@ -58,3 +66,7 @@ set_target_properties(lantern_touch_test PROPERTIES C_STANDARD 99)
 target_include_directories(lantern_touch_test PRIVATE ${SDL2_INCLUDE_DIRS})
 target_link_libraries(lantern_touch_test lantern_core)
 add_test(NAME touch COMMAND lantern_touch_test)
+
+# wick language suite: semantics assertions + must-fail-to-compile cases.
+add_test(NAME wick COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/wick_test.sh
+                                $<TARGET_FILE:lantern>)

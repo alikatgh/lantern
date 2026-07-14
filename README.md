@@ -64,6 +64,35 @@ play → results, all in one file.
 recipients need no homebrew, no compiler. It refuses to package itself
 unless the bundled binary actually renders a frame.
 
+## wick — lantern's own language
+
+lantern ships its own scripting language: **wick** — Lua's size and feel
+with the sharp edges designed out. Statically typed with `T?` optionals
+(the "empty save file crashes the game" class of bug is a *compile error*),
+locals-only (typos can't create silent globals), 0-based indexing, strict
+bool conditions, typed engine bindings (wrong `lt.draw` args fail at
+compile time, on the error screen), deterministic `rand()`, and GC that
+runs only between frames. The compiler + VM are ~2k lines in `wick/`,
+zero dependencies, same zlib license.
+
+A game is a folder with `main.wick` (the host prefers it over `main.lua`):
+
+```wick
+let best = num(lt.load_save("best") ?? "") ?? 0   // optionals, by force
+
+fn update(dt: num) {
+  if lt.pressed("z") { best = best + 1  lt.save("best", str(best)) }
+}
+fn draw() {
+  lt.clear(0.1, 0.1, 0.2)
+  lt.print("BEST " + str(best), 4, 4, 1, 1, 1, 1)
+}
+```
+
+Full language reference: [docs/WICK.md](docs/WICK.md). Try it:
+`./build/lantern games/wicklab`. Test suite: `tests/wick_test.sh` (runs in
+CI — including eight programs that MUST fail to compile).
+
 ## Make a game (Lua)
 
 Copy `games/template/`, edit `main.lua`. Define `update(dt)` and `draw()`;

@@ -1,0 +1,67 @@
+// wicklab — the first game written in wick, lantern's own language.
+// The template's gameplay plus a tour of what Lua couldn't give us:
+// optionals you MUST handle, typed engine calls, 0-based lists, and
+// deterministic rand(). Try breaking it: remove the `?? 0` below and the
+// engine shows a COMPILE error, not a runtime crash.
+
+let cube = lt.cube()
+let ball = lt.sphere(14)
+
+// load_save returns str?; num() returns num? — both handled, by force.
+let best = num(lt.load_save("wicklab_best") ?? "") ?? 0
+
+let x = 200.0
+let y = 120.0
+let t = 0.0
+
+// typed list, 0-indexed; a little starfield with deterministic layout
+srand(7)
+let stars: list<num> = []
+for i in 0..40 {
+  push(stars, rand() * 400)
+  push(stars, rand() * 240)
+}
+
+fn wobble(v: num): num {
+  return sin(v * 2) * 6
+}
+
+fn update(dt: num) {
+  t = t + dt
+  let speed = 120.0
+  if lt.key("left")  { x = x - speed * dt }
+  if lt.key("right") { x = x + speed * dt }
+  if lt.key("up")    { y = y - speed * dt }
+  if lt.key("down")  { y = y + speed * dt }
+  x = max(8, min(392, x))
+  y = max(8, min(232, y))
+  if lt.pressed("z") {
+    best = best + 1
+    lt.save("wicklab_best", str(best))
+  }
+}
+
+fn draw() {
+  lt.clear(0.09, 0.07, 0.16)
+
+  // 3D backdrop: spinning cube + orbiting moon, warm point light
+  lt.camera(0, 1.6, 4.2, 0, 0, 0, 55)
+  lt.light(0.4, 0 - 1, 0 - 0.3, 0.35)
+  lt.point_light(0, 1.6, 1, 1.6, 4, 1, 0.7, 0.3)
+  lt.draw(cube, 0, 0, 0, t * 0.4, t * 0.6, 0, 1.1, 1.1, 1.1, 0.55, 0.65, 0.9)
+  lt.draw(ball, cos(t) * 1.8, 0.4, sin(t) * 1.8, 0, 0, 0,
+          0.4, 0.4, 0.4, 0.9, 0.6, 0.4)
+
+  // starfield from the typed list (pairs: x at 2i, y at 2i+1)
+  for i in 0..40 {
+    lt.rect(stars[i * 2], stars[i * 2 + 1], 1, 1, 1, 1, 1, 0.5)
+  }
+
+  // the movable pixel-hero, wobbling on wick's own math
+  lt.rect(x - 4, y - 4 + wobble(t), 8, 8, 1, 0.85, 0.3, 1)
+
+  lt.rect(0, lt.H - 14, lt.W, 14, 0.05, 0.05, 0.08, 0.6)
+  lt.print("WICK IS ALIVE  Z: COUNT (" + str(best) + ")", 4, lt.H - 11,
+           1, 1, 1, 0.9)
+  lt.print("ARROWS: MOVE", lt.W - 8 * 12 - 4, lt.H - 11, 0.7, 0.85, 0.7, 0.9)
+}

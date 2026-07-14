@@ -188,6 +188,16 @@ rendered frames, never by "it compiled".**
   leak-free). Plus: cached view-projection, hoisted light normalization,
   nearest white texture, dead-code removal, site CSS rule compliance.
   Fixed-dt determinism verified by byte-identical repeated captures.
+- **v0.7 ✅ (2026-07-14) — WICK, our own language.** User directive:
+  "make our own programming language... open source and fully control."
+  `wick/` = lexer + one-pass typed compiler + bytecode stack VM (~2k lines,
+  zero deps): static types with `T?` optionals, locals-only, 0-based
+  indexing, strict bool conditions, typed `lt.*` natives (compile-time
+  arity/type checks), deterministic xorshift `rand()`, frame-boundary-only
+  GC. Host prefers `main.wick` over `main.lua` (Lua remains supported).
+  First program: `games/wicklab`. Suite: `tests/wick_test.sh` — 26 runtime
+  assertions + 8 must-fail-to-compile safety cases (each a Lua bug class),
+  all green and in ctest. Language doc: docs/WICK.md.
 - **v1.0** — public developer release.
 
 ## Porting notes: KORA (Godot → lantern)
