@@ -1,0 +1,45 @@
+# Build + screenshot-verify on macOS (the engine's target platform).
+# The engine renders deterministically, so LANTERN_SHOT screenshots are a
+# real correctness check, not just "did it launch".
+name: Build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "site/**"
+      - "**.md"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install sdl2 lua pkg-config
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j3
+
+      - name: Screenshot test (demo game)
+        run: |
+          mkdir -p shots
+          LANTERN_SHOT=$PWD/shots/demo ./build/lantern games/demo
+          ls -la shots/
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: shots/
+          if-no-files-found: error

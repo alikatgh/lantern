@@ -1,0 +1,15 @@
+# Build trees
+build/
+build-dist/
+
+# Packaged releases (published via GitHub Releases, not tracked)
+dist/
+
+# OS / editor noise
+.DS_Store
+__pycache__/
+*.pyc
+
+# Local screenshot-test output
+*.bmp.actual
+shots/

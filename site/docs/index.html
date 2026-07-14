@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lantern docs — developer documentation</title>
+<meta name="description" content="Developer documentation for the lantern game engine: install, first game, complete Lua API reference, C ABI, assets, dev loop, distribution.">
+<link rel="canonical" href="https://famemu.aulenor.com/docs/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="lantern docs — developer documentation">
+<meta property="og:description" content="Install, your first game, the complete ~40-call Lua API, the C ABI, assets, dev loop, and distribution.">
+<meta property="og:url" content="https://famemu.aulenor.com/docs/">
+<meta property="og:image" content="https://famemu.aulenor.com/assets/v06-showcase-title.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='5' y='2' width='6' height='3' fill='%23e8be3c'/><rect x='4' y='5' width='8' height='8' fill='%23e8be3c'/><rect x='6' y='7' width='4' height='4' fill='%230e0d16'/></svg>">
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="../"><span class="tip">◆</span> lantern</a>
+    <nav class="top">
+      <a href="../#features">Features</a>
+      <a href="../#games">Games</a>
+      <a href="./" class="active">Docs</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap docs">
+
+<aside class="toc">
+  <h4>Start</h4>
+  <a href="#install">Install &amp; build</a>
+  <a href="#first-game">Your first game</a>
+  <a href="#concepts">Core concepts</a>
+  <h4>Lua API</h4>
+  <a href="#api-frame">Frame &amp; screen</a>
+  <a href="#api-3d">3D scene</a>
+  <a href="#api-mesh">Meshes</a>
+  <a href="#api-2d">2D</a>
+  <a href="#api-audio">Audio</a>
+  <a href="#api-input">Input</a>
+  <a href="#api-save">Saves &amp; misc</a>
+  <h4>Going deeper</h4>
+  <a href="#c-abi">The C ABI</a>
+  <a href="#assets">Assets</a>
+  <a href="#devloop">The dev loop</a>
+  <a href="#verify">Verification</a>
+  <a href="#dist">Distribution</a>
+  <a href="#samples">Sample games</a>
+</aside>
+
+<main class="doc">
+
+<h1>lantern documentation</h1>
+<p class="dim">Everything you need to build a game on lantern. The whole API
+is about 40 calls; you can read this page top to bottom in one sitting.</p>
+
+<h2 id="install">Install &amp; build</h2>
+<pre><code><span class="c"># macOS (Linux: same packages via your package manager)</span>
+brew install sdl2 lua cmake pkg-config
+cmake -B build &amp;&amp; cmake --build build -j8
+
+./build/lantern games/showcase   <span class="c"># KORA NIGHT — complete mini-game</span>
+./build/lantern games/demo       <span class="c"># every feature in one scene</span>
+./build/lantern games/template   <span class="c"># the copy-me starter</span></code></pre>
+<p>Or grab the prebuilt bundle — the engine binary with Lua statically
+linked and SDL bundled, no dependencies to install. See
+<a href="#dist">Distribution</a>.</p>
+
+<h2 id="first-game">Your first game</h2>
+<p>A lantern game is a folder containing <code>main.lua</code>. Copy
+<code>games/template/</code>, rename it, and run it:</p>
+<pre><code>cp -r games/template games/mygame
+./build/lantern games/mygame</code></pre>
+<p>Define two global functions. The engine calls them at 60 fps:</p>
+<pre><code><span class="k">function</span> update(dt)   <span class="c">-- dt = seconds since last frame (capped at 0.1)</span>
+<span class="k">end</span>
+
+<span class="k">function</span> draw()       <span class="c">-- 3D first, then 2D composites on top</span>
+  lt.clear(0.1, 0.1, 0.2)
+  lt.print(<span class="s">"HELLO 400X240"</span>, 4, 4, 1, 1, 1, 1)
+<span class="k">end</span></code></pre>
+<p>While the engine runs, edit and save <code>main.lua</code> — it reloads
+live. If you make a mistake, an in-engine error screen shows the file and
+line; fix it, save, and play resumes.</p>
+
+<h2 id="concepts">Core concepts</h2>
+<ul>
+  <li><b>The screen is always 400×240</b> (<code>lt.W</code> ×
+  <code>lt.H</code>) — the 3DS top screen. It integer-upscales to the
+  window with nearest filtering. There is no way to render at window
+  resolution; that limit is the aesthetic.</li>
+  <li><b>2D coordinates</b> are pixels in that space, y-down.
+  <b>3D</b> is right-handed, y-up.</li>
+  <li><b>Draw order:</b> 3D mesh and billboard calls render immediately,
+  depth-tested. 2D calls (<code>rect</code>, <code>sprite*</code>,
+  <code>print</code>) batch up and composite over the 3D at the end of the
+  frame. Your HUD is always on top.</li>
+  <li><b>Lighting is per-vertex</b> (gouraud) — the PICA200 idiom. Want
+  round light pools on a floor? Tessellate it (<code>lt.plane(12)</code>).
+  Want faceted low-poly shading? Keep meshes coarse.</li>
+  <li><b>Transparency in 3D is alpha-test</b>: texels with alpha below 0.5
+  are discarded. No sorting, no halos, hard retro edges. (Blob shadows are
+  the blessed exception — <code>lt.shadow</code> blends.)</li>
+  <li><b>The renderer is the engine's own software rasterizer</b> — no GPU
+  API. Texture sampling is <b>bilinear</b> by default (the real 3DS look);
+  the built-in font and the final integer upscale stay nearest. Output is
+  bit-identical across machines.</li>
+  <li><b>Handles are integers.</b> Meshes, textures, and sounds return
+  non-negative int handles; <code>-1</code> (or a Lua error) means failure.
+  Colors are floats 0..1 everywhere.</li>
+</ul>
+
+<h2 id="api-frame">API — frame &amp; screen</h2>
+<table class="api">
+  <tr><th>Call</th><th>What it does</th></tr>
+  <tr><td>lt.W · lt.H</td><td>Screen size constants: 400 and 240.</td></tr>
+  <tr><td>lt.clear(r,g,b)</td><td>Clear color and depth. Call first in <code>draw()</code>. Match it to your fog color so distant geometry melts into the sky.</td></tr>
+  <tr><td>lt.time()</td><td>Seconds since boot.</td></tr>
+  <tr><td>lt.screenshot(path)</td><td>Save the current 400×240 frame as BMP.</td></tr>
+</table>
+
+<h2 id="api-3d">API — 3D scene</h2>
+<table class="api">
+  <tr><th>Call</th><th>What it does</th></tr>
+  <tr><td>lt.camera(ex,ey,ez, tx,ty,tz [,fov])</td><td>Position the camera at (ex,ey,ez) looking at (tx,ty,tz). Default fov 55°. Settings persist between frames.</td></tr>
+  <tr><td>lt.light(dx,dy,dz [,ambient])</td><td>The directional light (a sun) plus a flat ambient floor (default 0.35).</td></tr>
+  <tr><td>lt.point_light(i, x,y,z, radius [,r,g,b])</td><td>Set point-light slot <code>i</code> (0–3 — four, like the 3DS hardware). Attenuation is (1−d/radius)², clamped. <code>radius ≤ 0</code> turns the slot off.</td></tr>
+  <tr><td>lt.fog(start, end, r,g,b)</td><td>Linear fog by view depth, applied to meshes and billboards. Disable with <code>end ≤ start</code>.</td></tr>
+  <tr><td>lt.draw(m, x,y,z, rx,ry,rz, sx,sy,sz [,r,g,b [,tex]])</td><td>Draw mesh <code>m</code> with translation, rotation (radians), scale, an RGB tint, and an optional texture.</td></tr>
+  <tr><td>lt.billboard(t, x,y,z, w,h [,u0,v0,u1,v1])</td><td>A camera-facing textured quad in the 3D scene — sprite characters in a diorama. Fullbright, fogged, alpha-tested. Optional UVs pick an atlas sub-rect.</td></tr>
+  <tr><td>lt.shadow(x,y,z, radius [,alpha])</td><td>ALBW-style grounding shadow: a soft dark disc flat on the ground at height y (floor + small epsilon). Depth-tested, alpha-blended, never depth-written.</td></tr>
+  <tr><td>lt.draw_lerp(mA,mB,t, x,y,z, rx,ry,rz, sx,sy,sz [,r,g,b [,tex]])</td><td>Keyframe animation, Quake-style: draws with vertices tweened between two same-count meshes, t = 0..1.</td></tr>
+</table>
+
+<h2 id="api-mesh">API — meshes</h2>
+<p class="dim">Vertex format: 12 floats — position (3), normal (3), UV (2),
+RGBA color (4). Vertex color multiplies texture and tint; it's your
+low-poly gradient tool.</p>
+<table class="api">
+  <tr><th>Call</th><th>What it does</th></tr>
+  <tr><td>lt.cube()</td><td>Unit cube, per-face normals, 0..1 UVs per face.</td></tr>
+  <tr><td>lt.plane(segs)</td><td>Unit XZ plane at y=0, tessellated segs×segs. More segments = rounder per-vertex light pools.</td></tr>
+  <tr><td>lt.sphere(seg) · lt.cylinder(seg) · lt.cone(seg)</td><td>Unit-diameter primitives around the y axis; <code>seg</code> controls smoothness.</td></tr>
+  <tr><td>lt.mesh{…}</td><td>Custom mesh from a flat table of vertices, 12 floats each, GL_TRIANGLES.</td></tr>
+  <tr><td>lt.load_mesh("model.obj")</td><td>Wavefront OBJ (v/vt/vn/f, any face-index form, polygons fan-triangulate). Missing normals get flat face normals — the faceted look. Materials are ignored; texture via <code>lt.draw</code>.</td></tr>
+</table>
+
+<h2 id="api-2d">API — 2D</h2>
+<table class="api">
+  <tr><th>Call</th><th>What it does</th></tr>
+  <tr><td>lt.rect(x,y,w,h, r,g,b [,a])</td><td>Filled rectangle with alpha blending.</td></tr>
+  <tr><td>lt.load_texture("img.bmp")</td><td>Load a BMP, bilinear-filtered. Returns <code>tex, w, h</code>. Pure magenta (255,0,255) becomes transparent (classic color key), with automatic edge-bleed so filtering never fringes.</td></tr>
+  <tr><td>lt.sprite(t, x,y [,sx,sy])</td><td>Draw a texture at its natural size × scale, top-left anchored.</td></tr>
+  <tr><td>lt.sprite_ex(t, cx,cy [,sx,sy, rot, r,g,b,a])</td><td>Full-control sprite: center-anchored, rotation in radians, tint and alpha. Negative scale flips.</td></tr>
+  <tr><td>lt.sprite_uv(t, x,y,w,h, u0,v0,u1,v1)</td><td>Draw an atlas sub-rect (UVs 0..1) into a destination rect — the tilemap workhorse.</td></tr>
+  <tr><td>lt.print("TEXT", x,y [,r,g,b,a])</td><td>Built-in 8×8 uppercase font, 8 px advance, <code>\n</code> supported. Lowercase is upcased.</td></tr>
+</table>
+
+<h2 id="api-audio">API — audio</h2>
+<p class="dim">A 48 kHz stereo mixer with 16 channels. WAVs convert once at
+load; loops are sample-exact.</p>
+<table class="api">
+  <tr><th>Call</th><th>What it does</th></tr>
+  <tr><td>lt.load_sound("bell.wav")</td><td>Load a WAV (any common format/rate — converted at load).</td></tr>
+  <tr><td>lt.play(s [,volume, loop])</td><td>Play on a free channel; returns the channel handle, or −1 if all 16 are busy. Pass <code>true</code> to loop (music).</td></tr>
+  <tr><td>lt.stop(ch)</td><td>Stop a playing channel.</td></tr>
+  <tr><td>lt.volume(v)</td><td>Master volume 0..1.</td></tr>
+</table>
+
+<h2 id="api-input">API — input</h2>
+<p class="dim">Keyboard and the first game controller are merged into one
+namespace: d-pad and left stick are the directions, A=<code>z</code>,
+B=<code>x</code>, Y=<code>c</code>, Start=<code>return</code>. Hotplug is
+handled.</p>
+<table class="api">
+  <tr><th>Call</th><th>What it does</th></tr>
+  <tr><td>lt.key(name)</td><td>Held right now? Names: <code>left right up down z x c space return escape a s d w</code>.</td></tr>
+  <tr><td>lt.pressed(name)</td><td>Went down this frame (edge-triggered — menus, jumps, relighting lamps).</td></tr>
+  <tr><td>lt.gamepad()</td><td>Is a controller connected?</td></tr>
+  <tr><td>lt.rumble(low, high, ms)</td><td>Rumble the pad (no-op without one). Intensities 0..1.</td></tr>
+</table>
+
+<h2 id="api-save">API — saves &amp; misc</h2>
+<table class="api">
+  <tr><th>Call</th><th>What it does</th></tr>
+  <tr><td>lt.save(name, str)</td><td>Persist a binary-safe string under <code>name</code> ([A-Za-z0-9_.-]). Stored in the OS application-support directory.</td></tr>
+  <tr><td>lt.load_save(name)</td><td>Read it back, or <code>nil</code> if it doesn't exist.</td></tr>
+</table>
+<pre><code><span class="c">-- hi-score in two lines</span>
+<span class="k">local</span> best = tonumber(lt.load_save(<span class="s">"best"</span>) <span class="k">or</span> <span class="s">"0"</span>)
+<span class="k">if</span> score &gt; best <span class="k">then</span> lt.save(<span class="s">"best"</span>, tostring(score)) <span class="k">end</span></code></pre>
+
+<h2 id="c-abi">The C ABI</h2>
+<p>Every Lua call above has a 1:1 twin in <code>include/lantern.h</code>
+with an <code>lt_</code> prefix — the Lua host is itself just a client of
+that header. Link the <code>lantern_core</code> static library and you have
+the whole engine from C or C++:</p>
+<pre><code>#include &lt;lantern.h&gt;
+
+<span class="k">static void</span> update(<span class="k">double</span> dt) { }
+<span class="k">static void</span> draw(<span class="k">void</span>) {
+    lt_clear(0.1f, 0.1f, 0.2f);
+    lt_print(<span class="s">"HELLO FROM C"</span>, 4, 4, 1, 1, 1, 1);
+}
+
+<span class="k">int</span> main(<span class="k">void</span>) {
+    <span class="k">if</span> (!lt_boot(<span class="s">"my game"</span>, 3)) <span class="k">return</span> 1;
+    lt_run(update, draw);         <span class="c">/* or drive the loop yourself:      */</span>
+    lt_shutdown();                <span class="c">/* lt_frame_poll/_begin/_end/_dt    */</span>
+}</code></pre>
+<p><code>games/hello_c/main.c</code> is a complete working example, built as
+the <code>lantern_hello_c</code> CMake target.</p>
+
+<h2 id="assets">Assets</h2>
+<ul>
+  <li><b>Textures — BMP.</b> Nearest-filtered, clamped. Pure magenta
+  (255,0,255) reads as transparent. Keep them small; 256×256 is the
+  spiritual maximum.</li>
+  <li><b>Sounds — WAV.</b> Any common encoding; converted to 48 kHz float
+  at load.</li>
+  <li><b>Models — OBJ.</b> Omit normals on purpose if you want flat faceted
+  shading — the loader computes face normals.</li>
+  <li class="dim">Asset paths in Lua are relative to the game folder.</li>
+</ul>
+
+<h2 id="devloop">The dev loop</h2>
+<ul>
+  <li><b>Hot-reload:</b> the engine watches <code>main.lua</code> (checked
+  twice a second). Save the file and it re-runs in the same Lua state —
+  globals persist, resources re-create.</li>
+  <li><b>Error screen:</b> a Lua error (load-time or runtime) renders
+  in-engine with the file, line, and message. The watcher keeps running:
+  fix the file, save, and the game resumes.</li>
+  <li><b>Uncapped mode:</b> <code>LANTERN_NOVSYNC=1</code> disables vsync
+  for benchmarking (see <code>games/stress/</code> — ~10,300 lit draw calls
+  fit the 16.6 ms budget on an M-series laptop).</li>
+</ul>
+
+<h2 id="verify">Verification (screenshot your game in CI)</h2>
+<pre><code>LANTERN_SHOT=/tmp/myshot ./build/lantern games/mygame
+<span class="c"># runs 60 frames, writes /tmp/myshot.bmp (the real 400×240 frame), exits 0</span>
+
+LANTERN_SHOT_FRAME=300 ...   <span class="c"># capture a later frame instead</span></code></pre>
+<p>This is how lantern itself is developed: every engine feature lands with
+a captured frame. Combine it with a deterministic auto-play mode in your
+game (see <code>games/showcase/</code>'s <code>SHOWCASE_AUTO</code>) and you
+can screenshot-test full gameplay in CI.</p>
+
+<h2 id="dist">Distribution</h2>
+<pre><code>bash tools/make_dist.sh
+<span class="c"># → dist/lantern-&lt;ver&gt;-macos-&lt;arch&gt;.tar.gz  (~1.3 MB)</span></code></pre>
+<p>The bundle contains the engine binary (Lua statically linked, SDL
+bundled and rewired to <code>@executable_path</code>), all sample games,
+<code>lantern.h</code>, and the docs. Recipients need no package manager
+and no compiler. The script refuses to package itself unless the bundled
+binary actually renders a frame.</p>
+
+<h2 id="samples">Sample games</h2>
+<table class="api">
+  <tr><th>Folder</th><th>What it shows</th></tr>
+  <tr><td>games/showcase</td><td>KORA NIGHT — a complete arcade game (title → play → results) where the four point lights are the mechanic. Audio, rumble, saves, ~200 lines.</td></tr>
+  <tr><td>games/room</td><td>THE SHOP — the ALBW-style interior: textured floor/walls/carpet, keyframe-animated hero (<code>lt.draw_lerp</code>), blob shadows, warm point lights, hearts HUD.</td></tr>
+  <tr><td>games/demo</td><td>Every feature in one monastery-at-dusk scene: fog, point lights, OBJ, billboards, textured custom meshes, HUD.</td></tr>
+  <tr><td>games/template</td><td>The commented starter you copy to begin a game.</td></tr>
+  <tr><td>games/stress</td><td>Draw-call benchmark; run with <code>LANTERN_NOVSYNC=1</code>.</td></tr>
+  <tr><td>games/hello_c</td><td>The engine from pure C99 via the ABI.</td></tr>
+</table>
+
+<div class="note"><b>lantern is part of the famemu project.</b> It's the
+platform's third engine tier — NES, SNES, and now the 3DS generation. Our
+own game, KORA, is built on it: the engine you get is the engine we ship
+on.</div>
+
+</main>
+</div>
+
+<footer class="site">
+  <div class="wrap">
+    <span>◆ lantern — part of the famemu project</span>
+    <a href="./">Documentation</a>
+    <a href="../">Home</a>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Generate games/demo assets (no deps — BMP/WAV/OBJ written by hand).
+
+flags.bmp     — 40x8 prayer-flag strip (5 flags, dark seams)
+monk.bmp      — 16x24 monk sprite, magenta-keyed (billboard demo)
+watch.bmp     — 12x12 pocket-watch icon, magenta-keyed (sprite_ex demo)
+bell.wav      — 1.6 s temple-bell strike (decaying partials, 22.05 kHz mono)
+mountains.obj — low-poly ridge heightfield (OBJ-loader demo; flat normals
+                come from the loader, which is the intended low-poly look)
+
+Rerun after editing: python3 tools/gen_demo_assets.py  (from engine/).
+"""
+import math
+import os
+import struct
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DEMO = os.path.normpath(os.path.join(HERE, "..", "games", "demo"))
+
+# ── BMP ──────────────────────────────────────────────────────────────────
+
+def write_bmp(path, w, h, pixel_fn):
+    row_pad = (4 - (w * 3) % 4) % 4
+    img_size = (w * 3 + row_pad) * h
+    with open(path, "wb") as f:
+        f.write(struct.pack("<2sIHHI", b"BM", 54 + img_size, 0, 0, 54))
+        f.write(struct.pack("<IiiHHIIiiII", 40, w, h, 1, 24, 0, img_size,
+                            2835, 2835, 0, 0))
+        for y in range(h - 1, -1, -1):        # BMP rows are bottom-up
+            for x in range(w):
+                r, g, b = pixel_fn(x, y)
+                f.write(struct.pack("<BBB", b, g, r))
+            f.write(b"\x00" * row_pad)
+
+KEY = (255, 0, 255)                            # engine color key
+
+FLAG_COLORS = [                                # the traditional 5, sky→earth
+    (58, 110, 205), (238, 238, 230), (205, 60, 52),
+    (60, 150, 82), (232, 190, 60),
+]
+
+def flags_px(x, y):
+    if x % 8 == 0 or y in (0, 7):              # seams / rope edge
+        return (40, 34, 30)
+    c = FLAG_COLORS[(x // 8) % 5]
+    if y >= 5 and (x + y) % 3 == 0:            # ragged, wind-worn bottom
+        return (40, 34, 30)
+    return c
+
+# 16x24 monk: shaved head, maroon robes, saffron sash — text-grid art,
+# same authoring style as game/make_chr.py.
+MONK = [
+    "......KKKK......",
+    ".....KSSSSK.....",
+    ".....KSSSSK.....",
+    ".....KSSSSK.....",
+    "......KSSK......",
+    ".....RRRRRR.....",
+    "....RRRRRRRR....",
+    "...RRROOORRRR...",
+    "...RRROOORRRR...",
+    "..RRRROOORRRRR..",
+    "..RSRROOORRRSR..",
+    "..RSRROOORRRSR..",
+    "..SSRRROORRRSS..",
+    "...RRRRRRRRRR...",
+    "...RRRRRRRRRR...",
+    "...RRRRRRRRRR...",
+    "...RRRRRRRRRR...",
+    "...RRRRRRRRRR...",
+    "...RRRRRRRRRR...",
+    "...RRRRRRRRRR...",
+    "...RRRRRRRRRR...",
+    "....RRR..RRR....",
+    "....KKK..KKK....",
+    "....KKK..KKK....",
+]
+MONK_C = {"K": (72, 52, 40), "S": (222, 178, 140), "R": (128, 32, 36),
+          "O": (226, 138, 42), ".": KEY}
+
+def monk_px(x, y):
+    return MONK_C[MONK[y][x]]
+
+# 12x12 pocket watch: gold case, white face, dark hands.
+WATCH = [
+    "....GGGG....",
+    "...GGGGGG...",
+    "..GGWWWWGG..",
+    ".GGWWWDWWGG.",
+    ".GWWWWDWWWG.",
+    "GGWWWWDWWWGG",
+    "GGWWWDDDWWGG",
+    ".GWWWWWWWWG.",
+    ".GGWWWWWWGG.",
+    "..GGWWWWGG..",
+    "...GGGGGG...",
+    "....GGGG....",
+]
+WATCH_C = {"G": (232, 190, 60), "W": (240, 238, 228), "D": (60, 50, 40),
+           ".": KEY}
+
+def watch_px(x, y):
+    return WATCH_C[WATCH[y][x]]
+
+# ── WAV ──────────────────────────────────────────────────────────────────
+
+def write_bell(path):
+    rate, dur = 22050, 1.6
+    n = int(rate * dur)
+    # temple bell: inharmonic partials, long decay
+    partials = [(520.0, 1.0, 2.2), (1041.0, 0.55, 3.5), (1560.0, 0.32, 5.0),
+                (208.0, 0.4, 1.4), (2604.0, 0.18, 7.0)]
+    frames = bytearray()
+    for i in range(n):
+        t = i / rate
+        s = sum(a * math.sin(2 * math.pi * f * t) * math.exp(-t * d)
+                for f, a, d in partials)
+        s *= min(1.0, t * 400)                 # 2.5 ms attack, no click
+        v = max(-1.0, min(1.0, s * 0.5))
+        frames += struct.pack("<h", int(v * 32767))
+    with open(path, "wb") as f:
+        f.write(b"RIFF" + struct.pack("<I", 36 + len(frames)) + b"WAVE")
+        f.write(b"fmt " + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2,
+                                      2, 16))
+        f.write(b"data" + struct.pack("<I", len(frames)) + frames)
+
+# ── OBJ ──────────────────────────────────────────────────────────────────
+
+def write_mountains(path):
+    """8x8 heightfield ridge, deterministic 'random' peaks, fan-triangulated
+    quads. No vn/vt on purpose: the engine's flat-normal fallback gives the
+    faceted low-poly look."""
+    N = 8
+    def height(i, j):
+        # deterministic pseudo-noise: sum of fixed sines
+        u, v = i / N, j / N
+        h = (math.sin(u * 9.7 + 1.3) * math.cos(v * 7.3 + 0.6) * 0.5 +
+             math.sin((u + v) * 5.1) * 0.35 +
+             math.sin(u * 17 + v * 13) * 0.15)
+        edge = min(i, j, N - i, N - j) / (N / 2)   # taper to the rim
+        return max(0.0, h) * edge
+    with open(path, "w") as f:
+        f.write("# lantern demo mountains — generated by gen_demo_assets.py\n")
+        for j in range(N + 1):
+            for i in range(N + 1):
+                x, z = i / N - 0.5, j / N - 0.5
+                f.write("v %.4f %.4f %.4f\n" % (x, height(i, j), z))
+        def vid(i, j):
+            return j * (N + 1) + i + 1
+        for j in range(N):
+            for i in range(N):
+                a, b = vid(i, j), vid(i + 1, j)
+                c, d = vid(i + 1, j + 1), vid(i, j + 1)
+                f.write("f %d %d %d %d\n" % (a, d, c, b))  # CCW seen from +Y
+
+if __name__ == "__main__":
+    write_bmp(os.path.join(DEMO, "flags.bmp"), 40, 8, flags_px)
+    write_bmp(os.path.join(DEMO, "monk.bmp"), 16, 24, monk_px)
+    write_bmp(os.path.join(DEMO, "watch.bmp"), 12, 12, watch_px)
+    write_bell(os.path.join(DEMO, "bell.wav"))
+    write_mountains(os.path.join(DEMO, "mountains.obj"))
+    print("wrote flags.bmp monk.bmp watch.bmp bell.wav mountains.obj →", DEMO)

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lantern — a 3DS-class 2D/3D game engine</title>
+<meta name="description" content="lantern is a tiny game engine for making games that look and feel like the Nintendo 3DS generation: low-poly 3D, pixel-perfect 2D, one 400×240 screen. Lua or C. 1.3 MB.">
+<link rel="canonical" href="https://famemu.aulenor.com/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="lantern — a 3DS-class 2D/3D game engine">
+<meta property="og:description" content="Low-poly 3D, pixel-perfect 2D, one 400×240 screen. Lua or C. The whole engine in 1.3 MB.">
+<meta property="og:url" content="https://famemu.aulenor.com/">
+<meta property="og:image" content="https://famemu.aulenor.com/assets/v06-showcase-title.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='5' y='2' width='6' height='3' fill='%23e8be3c'/><rect x='4' y='5' width='8' height='8' fill='%23e8be3c'/><rect x='6' y='7' width='4' height='4' fill='%230e0d16'/></svg>">
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="./"><span class="tip">◆</span> lantern</a>
+    <nav class="top">
+      <a href="#features">Features</a>
+      <a href="#games">Games</a>
+      <a href="#code">Code</a>
+      <a href="docs/">Docs</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="hero">
+    <h1>Make games the way the<br><em>3DS generation</em> looked.</h1>
+    <p class="sub">lantern is a tiny 2D/3D game engine with one rule: everything
+    renders at 400×240 — by <b>its own software rasterizer</b>. No GPU API,
+    no borrowed pipeline: every pixel is computed by the engine. The
+    constraints <i>are</i> the aesthetic.</p>
+    <div class="cta">
+      <a class="btn primary" href="docs/#install">Get started</a>
+      <a class="btn" href="docs/">Read the docs</a>
+    </div>
+
+    <figure class="hero-shot">
+      <img class="shot" src="assets/v06-showcase-title.png" width="400" height="240"
+           alt="Kora Night title screen: a monk stands before a stupa at night, butter lamps glowing">
+      <figcaption>KORA NIGHT — the bundled showcase game. ~200 lines of Lua,
+      title to results screen. Every pixel above is a real engine frame.</figcaption>
+    </figure>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b>1.3 MB</b><span>the whole engine, distributed</span></div>
+    <div class="stat"><b>400×240</b><span>one screen, integer-upscaled</span></div>
+    <div class="stat"><b>~40 calls</b><span>the entire API surface</span></div>
+    <div class="stat"><b>12,400</b><span>software draw calls at 60 fps</span></div>
+    <div class="stat"><b>2</b><span>languages: Lua and C</span></div>
+  </div>
+
+  <section id="features">
+    <h2>Constraints, not filters</h2>
+    <p class="lead">Nothing in lantern imitates the old look with shaders.
+    The look <i>emerges</i> from real limits, the same way it did on hardware.</p>
+
+    <div class="grid">
+      <div class="cell">
+        <h3>A renderer we own outright</h3>
+        <p>No OpenGL, no Vulkan, no Metal. Transform, clipping,
+        perspective-correct rasterization, depth, bilinear sampling —
+        all computed in the engine's own C++. Deterministic output on
+        every machine.</p>
+      </div>
+      <div class="cell">
+        <h3>3D, the PICA200 way</h3>
+        <p>Gouraud per-vertex lighting: one directional light plus four point
+        lights, exactly the hardware budget of the 3DS GPU. Linear fog,
+        blob shadows, keyframe mesh animation, alpha-tested transparency.</p>
+      </div>
+      <div class="cell">
+        <h3>2D that composites over 3D</h3>
+        <p>Batched sprites, atlas sub-rects for tilemaps, rotation/tint/flip,
+        a built-in 8×8 font. Everything lands on the same 400×240 frame,
+        HUD always on top.</p>
+      </div>
+      <div class="cell">
+        <h3>Meshes from anywhere</h3>
+        <p>Primitives (cube, plane, sphere, cylinder, cone), custom vertex
+        buffers with per-vertex color, and Wavefront <code>OBJ</code> loading
+        with flat-normal fallback for that faceted low-poly shading.</p>
+      </div>
+      <div class="cell">
+        <h3>Billboards</h3>
+        <p>Camera-facing sprites inside the 3D scene — the
+        <i>A&nbsp;Link Between Worlds</i> trick for putting 2D characters in a
+        3D diorama. Fogged, alpha-tested, one call.</p>
+      </div>
+      <div class="cell">
+        <h3>Sound, saves, input</h3>
+        <p>A 48 kHz 16-channel WAV mixer with looping. Binary-safe save data.
+        Keyboard and gamepad merged into one namespace — held and
+        edge-triggered — plus rumble.</p>
+      </div>
+      <div class="cell">
+        <h3>A real dev loop</h3>
+        <p>Save <code>main.lua</code> while the engine runs and it hot-reloads.
+        A Lua error shows an in-engine error screen with file:line — fix,
+        save, keep playing. Screenshot any game headlessly for CI.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="code">
+    <h2>A game is a folder with main.lua</h2>
+    <p class="lead">No build step, no project files, no editor lock-in.
+    Define <code>update(dt)</code> and <code>draw()</code> — the engine calls
+    them at 60 fps. Prefer C? The identical API ships as a C ABI you link
+    against.</p>
+
+    <div class="cols">
+      <pre><code><span class="c">-- a complete lantern game</span>
+<span class="k">local</span> sphere = lt.sphere(14)
+
+<span class="k">function</span> draw()
+  lt.clear(0.1, 0.1, 0.2)
+  lt.fog(6, 25, 0.1, 0.1, 0.2)
+  lt.camera(0, 2, 5, 0, 0, 0, 55)
+  lt.point_light(0, 2, 1, 2, 4, 1, 0.7, 0.3)
+  lt.draw(sphere, 0, 0, 0, 0, lt.time(), 0,
+          1, 1, 1, 0.9, 0.5, 0.4)
+  lt.print(<span class="s">"HELLO"</span>, 4, 4, 1, 1, 1, 1)
+<span class="k">end</span></code></pre>
+      <figure>
+        <img class="shot" src="assets/v06-demo.png" width="400" height="240"
+             alt="Monastery at dusk demo: stupa, prayer flags, fog, butter lamp light pools">
+        <figcaption>games/demo — fog, point lights, OBJ mountains,
+        billboards and textured meshes in one scene.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="games">
+    <h2>Ships with proof</h2>
+    <p class="lead">Four sample games are in the box, from a commented
+    starter template to a complete arcade game where the engine's four
+    point lights are the core mechanic.</p>
+
+    <div class="gallery">
+      <figure>
+        <img class="shot" src="assets/v06-showcase-play.png" width="400" height="240"
+             alt="Kora Night gameplay: monk near the stupa, one lamp blown out">
+        <figcaption>KORA NIGHT — keep the butter lamps lit through a
+        windy night. Audio, rumble, saved hi-scores.</figcaption>
+      </figure>
+      <figure>
+        <img class="shot" src="assets/v06-hello-c.png" width="400" height="240"
+             alt="hello_c: a gouraud-lit gold cube rendered from pure C">
+        <figcaption>hello_c — the same engine driven from pure C99
+        through the stable ABI in lantern.h.</figcaption>
+      </figure>
+      <figure>
+        <img class="shot" src="assets/v06-room.png" width="400" height="240"
+             alt="The Shop: a warm wooden interior with red benches, a carpet, a purple shopkeeper and an animated hero">
+        <figcaption>games/room — an A-Link-Between-Worlds-style interior:
+        textured room, keyframe-animated hero, blob shadows, warm point
+        lights. All software-rendered.</figcaption>
+      </figure>
+      <figure>
+        <img class="shot" src="assets/v04-error-screen.png" width="400" height="240"
+             alt="In-engine Lua error screen showing file, line and message">
+        <figcaption>Break something and the engine tells you where —
+        then hot-reloads the moment you save the fix.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <h2>Built for the famemu platform</h2>
+    <p class="lead">lantern is the third engine tier of the famemu project —
+    after its NES and SNES engines comes the 3DS generation. Our own game,
+    <b>KORA</b>, is being built on it; the engine you get is the engine we
+    ship on. Get started in the <a href="docs/">developer docs</a>.</p>
+  </section>
+
+</div>
+
+<footer class="site">
+  <div class="wrap">
+    <span>◆ lantern — part of the famemu project</span>
+    <a href="docs/">Documentation</a>
+    <a href="docs/#dist">Download</a>
+  </div>
+</footer>
+
+</body>
+</html>
