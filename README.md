@@ -71,6 +71,14 @@ play → results, all in one file.
 recipients need no homebrew, no compiler. It refuses to package itself
 unless the bundled binary actually renders a frame.
 
+**Games ship as `.lant` packages** — one CRC-checked file made with
+`lantern_pack mygame/ mygame.lant` and played with `lantern mygame.lant`
+([format spec](docs/PACKAGE.md)). Store packages are wick-only, which is a
+security guarantee, not a preference: a wick game's only exits are the
+typed `lt.*` natives, so distributed games can't touch files or the
+network. Sell yours on the [lantern store](https://famemu.aulenor.com/store/)
+— developers keep 85%.
+
 ## wick — lantern's own language
 
 lantern ships its own scripting language: **wick** — Lua's size and feel

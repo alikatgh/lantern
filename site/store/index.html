@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lantern store — games for the lantern engine</title>
+<meta name="description" content="Curated games for the lantern engine, delivered as .lant packages. Open engine, honest store: developers keep 85%.">
+<link rel="canonical" href="https://famemu.aulenor.com/store/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="lantern store — games for the lantern engine">
+<meta property="og:description" content="Curated .lant games for the lantern engine. Developers keep 85%.">
+<meta property="og:url" content="https://famemu.aulenor.com/store/">
+<meta property="og:image" content="https://famemu.aulenor.com/assets/v06-showcase-title.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='5' y='2' width='6' height='3' fill='%23e8be3c'/><rect x='4' y='5' width='8' height='8' fill='%23e8be3c'/><rect x='6' y='7' width='4' height='4' fill='%230e0d16'/></svg>">
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="../"><span class="tip">◆</span> lantern</a>
+    <nav class="top">
+      <a href="../#features">Features</a>
+      <a href="../docs/">Docs</a>
+      <a href="./" class="active">Store</a>
+      <a href="https://github.com/alikatgh/lantern">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="hero">
+    <h1>The lantern <em>store</em>.</h1>
+    <p class="sub">Curated games for the lantern engine, each one a single
+    <code>.lant</code> file. Every store game is written in
+    <a href="https://alikatgh.github.io/wick-site/">wick</a>, so it is
+    <b>pure data</b> — no native code, no file access, no network. The worst
+    a game here can do is render rude pixels.</p>
+  </div>
+
+  <section id="games">
+    <h2>Games</h2>
+    <div class="gallery">
+      <figure>
+        <img class="shot" src="../assets/v06-showcase-title.png" width="400" height="240"
+             alt="Kora Night title screen: a monk before a stupa at night, butter lamps glowing">
+        <figcaption><b>KORA NIGHT</b> — free · keep the butter lamps lit
+        through a windy night. The engine's showcase, ~230 lines of wick.<br>
+        <a href="https://github.com/alikatgh/lantern/releases/latest/download/kora-night.lant">Download kora-night.lant</a></figcaption>
+      </figure>
+      <figure>
+        <img class="shot" src="../assets/v06-room.png" width="400" height="240"
+             alt="THE SHOP: a warm ALBW-style interior with a shopkeeper">
+        <figcaption><b>KORA</b> — coming soon · the flagship: a Zelda-scale
+        journey through the Himalayas, built on lantern.</figcaption>
+      </figure>
+    </div>
+    <p class="lead">To play: grab the engine from the
+    <a href="https://github.com/alikatgh/lantern/releases">releases page</a>,
+    then <code>lantern kora-night.lant</code>. macOS today; iPhone/iPad next.</p>
+  </section>
+
+  <section id="developers">
+    <h2>Sell your game here</h2>
+    <p class="lead">The engine is free and open source; the store is how it
+    sustains itself — and most of every sale belongs to the person who made
+    the game.</p>
+    <div class="grid">
+      <div class="cell">
+        <h3>You keep 85%</h3>
+        <p>The store takes 15% of each sale — payment processing comes out
+        of our share, not yours. Compare: Steam takes 30%. Free games cost
+        nothing to list. Paid checkout opens soon; the catalog and
+        submissions are open today.</p>
+      </div>
+      <div class="cell">
+        <h3>Write it in wick</h3>
+        <p>Store games are wick-only — that is what makes them safe to
+        distribute and cheap to review honestly. Lua remains fully
+        supported for local development.
+        <a href="https://alikatgh.github.io/wick-site/">Learn wick</a> —
+        it's Lua-small, and the compiler catches the bugs Lua saves for
+        your players.</p>
+      </div>
+      <div class="cell">
+        <h3>Package it</h3>
+        <p>One command: <code>lantern_pack mygame/ mygame.lant</code>.
+        Add a <code>game.info</code> with your id, title, and version.
+        The format is
+        <a href="https://github.com/alikatgh/lantern/blob/main/docs/PACKAGE.md">documented and tiny</a> —
+        your game stays yours.</p>
+      </div>
+      <div class="cell">
+        <h3>Submit it</h3>
+        <p><a href="https://github.com/alikatgh/lantern/issues/new?template=game-submission.md">Open a submission</a>
+        on GitHub with your .lant attached. Curation is a human playing
+        your game: it must run at 60 fps, be your own work, and be
+        finishable. That's the bar.</p>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer class="site">
+  <div class="wrap">
+    <span>◆ lantern — part of the famemu project</span>
+    <a href="../docs/">Documentation</a>
+    <a href="https://github.com/alikatgh/lantern/releases">Download</a>
+  </div>
+</footer>
+
+</body>
+</html>

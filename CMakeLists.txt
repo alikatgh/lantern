@@ -38,9 +38,9 @@ add_library(wick STATIC
 target_include_directories(wick PUBLIC wick)
 target_compile_options(wick PRIVATE -Wall -Wextra)
 
-# The bundled host: `lantern <game_dir>` runs <game_dir>/main.wick if
-# present, else main.lua.
-add_executable(lantern src/main.cpp src/wick_host.cpp)
+# The bundled host: `lantern <game_dir | game.lant>` runs main.wick if
+# present, else main.lua; .lant packages extract to a temp dir first.
+add_executable(lantern src/main.cpp src/wick_host.cpp src/package.cpp)
 target_include_directories(lantern PRIVATE ${LUA_INCLUDE_DIRS})
 target_link_directories(lantern PRIVATE ${LUA_LIBRARY_DIRS})
 target_link_libraries(lantern lantern_core wick ${LUA_LINK})
@@ -70,3 +70,14 @@ add_test(NAME touch COMMAND lantern_touch_test)
 # wick language suite: semantics assertions + must-fail-to-compile cases.
 add_test(NAME wick COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/wick_test.sh
                                 $<TARGET_FILE:lantern>)
+
+# The store packager: `lantern_pack <game_dir> <out.lant>`.
+add_executable(lantern_pack tools/pack_main.cpp src/package.cpp)
+target_compile_options(lantern_pack PRIVATE -Wall -Wextra)
+
+# .lant round trip: packed game renders byte-identical to its folder, and
+# a corrupted package is refused.
+add_test(NAME package
+         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/package_test.sh
+                      $<TARGET_FILE:lantern> $<TARGET_FILE:lantern_pack>
+                      ${CMAKE_CURRENT_SOURCE_DIR})

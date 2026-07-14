@@ -1,8 +1,11 @@
 // lantern Lua host — a client of the C ABI (include/lantern.h), nothing more.
-// Usage: lantern [game_dir]      (game_dir contains main.lua; default games/demo)
+// Usage: lantern [game_dir | game.lant]
+//   game_dir contains main.wick or main.lua (default games/demo);
+//   a .lant package extracts to a temp dir and runs from there.
 // LANTERN_SHOT=/path/prefix → run 60 frames, save <prefix>.bmp of the
 // 400×240 FBO, exit 0. Verify by frames, never by "it compiled".
 #include "lantern.h"
+#include "package.hpp"
 extern "C" {
 #include <lua.h>
 #include <lualib.h>
@@ -12,6 +15,7 @@ extern "C" {
 #include <cstdlib>
 #include <string>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 static std::string g_gameDir;
@@ -399,6 +403,27 @@ int runWickHost(const std::string& gameDir); // wick_host.cpp
 
 int main(int argc, char** argv) {
     g_gameDir = argc > 1 ? argv[1] : "games/demo";
+
+    // a .lant package: verify, extract to a fresh temp dir, run from there
+    if (g_gameDir.size() > 5 &&
+        g_gameDir.compare(g_gameDir.size() - 5, 5, ".lant") == 0) {
+        const char* tenv = std::getenv("TMPDIR");
+        std::string tmpl = std::string(tenv ? tenv : "/tmp");
+        if (tmpl.empty() || tmpl.back() != '/') tmpl += '/';
+        tmpl += "lantern-XXXXXX";
+        std::vector<char> buf(tmpl.begin(), tmpl.end());
+        buf.push_back('\0');
+        if (!mkdtemp(buf.data())) {
+            std::fprintf(stderr, "lantern: cannot create temp dir\n");
+            return 1;
+        }
+        std::string err;
+        if (!lt::pkgExtract(g_gameDir, buf.data(), err)) {
+            std::fprintf(stderr, "lantern: %s\n", err.c_str());
+            return 1;
+        }
+        g_gameDir = buf.data();
+    }
 
     // a game written in wick takes precedence over Lua
     struct stat st{};
