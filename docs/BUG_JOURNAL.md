@@ -24,6 +24,12 @@ before reproducing anything.
 
 ## Chronological log (newest first — 5 lines max each)
 
+### 2026-07-14 — touch test red on CI only (tests/touch_test.c)
+- Symptom: center-tap asserted 200 but got 244 — only on the GitHub runner.
+- Cause: the runner's display is smaller than 1200x720; SDL shrank the window, the frame letterboxed, and the test's hardcoded window coords no longer meant "center".
+- Fix: measure the real window size; assert only letterbox-invariant points (center, corners).
+- Lesson: never hardcode a requested window size in a test — displays clamp windows; assert at invariant points.
+
 ### 2026-07-14 — iOS: taps did nothing despite correct HUD coords (src/engine.cpp lt_touch_pressed)
 - Symptom: simulator tap updated lt_touch_x/y but the touchdemo ball never moved.
 - Cause: a synthetic tap's began+ended both landed between two frames — lt_touch_down never read 1, and _pressed edge-detected on that level.
