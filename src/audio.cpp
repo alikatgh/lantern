@@ -1,11 +1,15 @@
 // audio.cpp — lantern audio: 48 kHz stereo float mixer, 16 channels.
-// WAVs load through SDL and are converted once at load time; the callback
-// just mixes. No streaming (3DS-era sound banks are small); loops are
-// sample-exact.
+// Platform-free: WAVs are parsed and resampled by OUR OWN loader (RIFF
+// walk, PCM 8/16/24/32 or float32, mono/stereo, linear resample), and the
+// platform backend owns the output device, pulling mixerRender() from its
+// callback thread. All mixer state is mutex-guarded. No streaming
+// (3DS-era sound banks are small); loops are sample-exact.
 #include "audio.hpp"
-#include <SDL.h>
+#include "platform.hpp"
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <vector>
 
 namespace lt {
@@ -16,7 +20,7 @@ constexpr int FREQ = 48000;
 constexpr int CHANNELS = 16;
 
 struct Sound {
-    std::vector<float> samples; // interleaved stereo
+    std::vector<float> samples; // interleaved stereo, 48 kHz
 };
 
 struct Channel {
@@ -28,17 +32,128 @@ struct Channel {
 };
 
 struct Mixer {
-    SDL_AudioDeviceID dev = 0;
+    bool device = false;
     std::vector<Sound> sounds;
     Channel channels[CHANNELS];
     float master = 1.0f;
 };
 Mixer M;
+std::mutex mixMutex; // guards sounds/channels/master against the callback
 
-void SDLCALL mixCallback(void*, Uint8* stream, int len) {
-    float* out = (float*)stream;
-    int frames = len / (int)(sizeof(float) * 2);
-    std::memset(stream, 0, (size_t)len);
+uint32_t le32(const uint8_t* p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+uint16_t le16(const uint8_t* p) { return (uint16_t)(p[0] | (p[1] << 8)); }
+
+// Parse a WAV into interleaved stereo float at 48 kHz. Handles the formats
+// game tools actually emit: PCM 8/16/24/32-bit and IEEE float32, 1-2
+// channels, any sample rate (linear resample).
+bool parseWav(const char* path, std::vector<float>& out) {
+    FILE* f = std::fopen(path, "rb");
+    if (!f) {
+        std::fprintf(stderr, "audio load: cannot open %s\n", path);
+        return false;
+    }
+    std::fseek(f, 0, SEEK_END);
+    long fsize = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    if (fsize < 12 || fsize > 64 * 1024 * 1024) { // sound banks are small
+        std::fclose(f);
+        std::fprintf(stderr, "audio load: %s bad size\n", path);
+        return false;
+    }
+    std::vector<uint8_t> d((size_t)fsize);
+    size_t got = std::fread(d.data(), 1, d.size(), f);
+    std::fclose(f);
+    if (got != d.size() || std::memcmp(d.data(), "RIFF", 4) != 0 ||
+        std::memcmp(d.data() + 8, "WAVE", 4) != 0) {
+        std::fprintf(stderr, "audio load: %s is not a WAV\n", path);
+        return false;
+    }
+
+    int fmt = 0, chans = 0, bits = 0;
+    uint32_t rate = 0;
+    const uint8_t* data = nullptr;
+    size_t dataLen = 0;
+    size_t pos = 12;
+    while (pos + 8 <= d.size()) { // chunk walk; chunks pad to even
+        uint32_t sz = le32(&d[pos + 4]);
+        size_t body = pos + 8;
+        if (sz > d.size() - body) break; // truncated chunk: stop
+        if (std::memcmp(&d[pos], "fmt ", 4) == 0 && sz >= 16) {
+            fmt = le16(&d[body]);
+            chans = le16(&d[body + 2]);
+            rate = le32(&d[body + 4]);
+            bits = le16(&d[body + 14]);
+        } else if (std::memcmp(&d[pos], "data", 4) == 0) {
+            data = &d[body];
+            dataLen = sz;
+        }
+        pos = body + sz + (sz & 1);
+    }
+    const bool pcm =
+        fmt == 1 && (bits == 8 || bits == 16 || bits == 24 || bits == 32);
+    const bool f32 = fmt == 3 && bits == 32;
+    if ((!pcm && !f32) || chans < 1 || chans > 2 || rate == 0 || !data) {
+        std::fprintf(stderr,
+                     "audio load: %s unsupported (fmt %d, %d ch, %d bit)\n",
+                     path, fmt, chans, bits);
+        return false;
+    }
+
+    const size_t bytesPer = (size_t)bits / 8;
+    const size_t frames = dataLen / (bytesPer * (size_t)chans);
+    if (frames == 0) return false;
+    auto sampleAt = [&](size_t frame, int ch) -> float {
+        const uint8_t* p =
+            data + (frame * (size_t)chans + (size_t)ch) * bytesPer;
+        switch (bits) {
+            case 8: return ((int)p[0] - 128) / 128.0f; // 8-bit WAV: unsigned
+            case 16: return (int16_t)le16(p) / 32768.0f;
+            case 24: {
+                int32_t v = (int32_t)((uint32_t)p[0] << 8 |
+                                      (uint32_t)p[1] << 16 |
+                                      (uint32_t)p[2] << 24) >>
+                            8;
+                return (float)v / 8388608.0f;
+            }
+            default: // 32
+                if (f32) {
+                    float v;
+                    std::memcpy(&v, p, 4);
+                    return v;
+                }
+                return (float)((double)(int32_t)le32(p) / 2147483648.0);
+        }
+    };
+
+    // decode + resample to 48 kHz stereo in one pass (linear interpolation)
+    const size_t outFrames =
+        rate == FREQ ? frames : (size_t)((uint64_t)frames * FREQ / rate);
+    out.clear();
+    out.reserve(outFrames * 2);
+    const double step = (double)rate / FREQ;
+    for (size_t i = 0; i < outFrames; i++) {
+        double src = (double)i * step;
+        size_t i0 = (size_t)src;
+        if (i0 > frames - 1) i0 = frames - 1;
+        size_t i1 = i0 + 1 < frames ? i0 + 1 : i0;
+        float t = (float)(src - (double)i0);
+        for (int c = 0; c < 2; c++) {
+            int sc = chans == 2 ? c : 0; // mono duplicates into both ears
+            float a = sampleAt(i0, sc), b = sampleAt(i1, sc);
+            out.push_back(a + (b - a) * t);
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+void mixerRender(float* out, int frames) {
+    std::memset(out, 0, (size_t)frames * 2 * sizeof(float));
+    std::lock_guard<std::mutex> lock(mixMutex);
     for (Channel& ch : M.channels) {
         if (!ch.active) continue;
         const Sound& s = M.sounds[(size_t)ch.sound];
@@ -68,95 +183,51 @@ void SDLCALL mixCallback(void*, Uint8* stream, int len) {
     }
 }
 
-} // namespace
-
 bool audioInit() {
-    SDL_AudioSpec want{}, have{};
-    want.freq = FREQ;
-    want.format = AUDIO_F32SYS;
-    want.channels = 2;
-    want.samples = 1024;
-    want.callback = mixCallback;
-    M.dev = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
-    if (!M.dev) {
-        std::fprintf(stderr, "audio: %s (continuing silent)\n",
-                     SDL_GetError());
-        return false;
-    }
-    SDL_PauseAudioDevice(M.dev, 0);
-    return true;
+    M.device = platAudioStart(); // failure = silent engine, not fatal
+    return M.device;
 }
 
 void audioShutdown() {
-    if (M.dev) SDL_CloseAudioDevice(M.dev);
+    if (M.device) platAudioStop(); // callback stops before state dies
+    std::lock_guard<std::mutex> lock(mixMutex);
     M = Mixer{};
 }
 
 int audioLoad(const char* wavPath) {
-    SDL_AudioSpec spec{};
-    Uint8* buf = nullptr;
-    Uint32 len = 0;
-    if (!SDL_LoadWAV(wavPath, &spec, &buf, &len)) {
-        std::fprintf(stderr, "audio load: %s\n", SDL_GetError());
-        return -1;
-    }
-    SDL_AudioCVT cvt;
-    if (SDL_BuildAudioCVT(&cvt, spec.format, spec.channels, spec.freq,
-                          AUDIO_F32SYS, 2, FREQ) < 0) {
-        SDL_FreeWAV(buf);
-        return -1;
-    }
     Sound snd;
-    if (cvt.needed) {
-        cvt.len = (int)len;
-        std::vector<Uint8> work((size_t)cvt.len * (size_t)cvt.len_mult);
-        std::memcpy(work.data(), buf, len);
-        cvt.buf = work.data();
-        SDL_ConvertAudio(&cvt);
-        snd.samples.assign((float*)work.data(),
-                           (float*)(work.data() + cvt.len_cvt));
-    } else {
-        snd.samples.assign((float*)buf, (float*)(buf + len));
-    }
-    SDL_FreeWAV(buf);
+    if (!parseWav(wavPath, snd.samples)) return -1;
     if (snd.samples.size() < 2) { // one stereo frame minimum, or reject
         std::fprintf(stderr, "audio load: %s has no audio data\n", wavPath);
         return -1;
     }
-    if (M.dev) SDL_LockAudioDevice(M.dev);
+    std::lock_guard<std::mutex> lock(mixMutex);
     M.sounds.push_back(std::move(snd));
-    int id = (int)M.sounds.size() - 1;
-    if (M.dev) SDL_UnlockAudioDevice(M.dev);
-    return id;
+    return (int)M.sounds.size() - 1;
 }
 
 int audioPlay(int sound, float volume, bool loop) {
-    if (sound < 0 || sound >= (int)M.sounds.size() || !M.dev) return -1;
-    SDL_LockAudioDevice(M.dev);
-    int chosen = -1;
+    std::lock_guard<std::mutex> lock(mixMutex);
+    if (sound < 0 || sound >= (int)M.sounds.size() || !M.device) return -1;
     for (int i = 0; i < CHANNELS; i++) {
         if (!M.channels[i].active) {
             M.channels[i] = {sound, 0, volume, loop, true};
-            chosen = i;
-            break;
+            return i;
         }
     }
-    SDL_UnlockAudioDevice(M.dev);
-    return chosen;
+    return -1;
 }
 
 void audioStop(int channel) {
-    if (channel < 0 || channel >= CHANNELS || !M.dev) return;
-    SDL_LockAudioDevice(M.dev);
+    if (channel < 0 || channel >= CHANNELS) return;
+    std::lock_guard<std::mutex> lock(mixMutex);
     M.channels[channel].active = false;
-    SDL_UnlockAudioDevice(M.dev);
 }
 
 void audioReset() { // free every loaded sound (hot-reload support)
-    if (M.dev) SDL_LockAudioDevice(M.dev);
+    std::lock_guard<std::mutex> lock(mixMutex);
     for (Channel& ch : M.channels) ch.active = false;
     M.sounds.clear();
-    if (M.dev) SDL_UnlockAudioDevice(M.dev);
 }
 
 void audioMaster(float volume) {
@@ -164,9 +235,8 @@ void audioMaster(float volume) {
     if (volume > 1) volume = 1;
     // same locking discipline as every other mixer mutation — the callback
     // thread reads master mid-mix
-    if (M.dev) SDL_LockAudioDevice(M.dev);
+    std::lock_guard<std::mutex> lock(mixMutex);
     M.master = volume;
-    if (M.dev) SDL_UnlockAudioDevice(M.dev);
 }
 
 } // namespace lt

@@ -1,12 +1,12 @@
 // engine.cpp — implements the lantern C ABI (include/lantern.h) on top of
-// SDL2 + Gfx. This file owns ALL engine state; hosts (the Lua runner, C
-// games) talk only through lantern.h.
+// Gfx + the platform layer (platform.hpp). This file owns ALL engine state
+// and is platform-free; hosts (the Lua runner, C games) talk only through
+// lantern.h, and the OS talks only through a platform_*.cpp backend.
 #include "lantern.h"
 #include "audio.hpp"
 #include "gfx.hpp"
 #include "obj.hpp"
-#include <SDL.h>
-#include <algorithm>
+#include "platform.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -15,14 +15,17 @@
 
 namespace {
 
+// The canonical named-input list (lantern.h documents these). The engine
+// edge-detects over this list; what each name maps to is the backend's
+// business (keyboard+pad on desktop, virtual pad later on touch screens).
+const char* const kInputNames[] = {"left",  "right",  "up",     "down", "z",
+                                   "x",     "c",      "space",  "return",
+                                   "escape", "a",     "s",      "d",    "w"};
+
 struct Engine {
-    SDL_Window* win = nullptr;
-    SDL_Renderer* ren = nullptr;      // presentation only — we never draw
-    SDL_Texture* frameTex = nullptr;  // the 400x240 frame our raster fills
-    SDL_GameController* pad = nullptr;
+    bool booted = false;
     lt::Gfx gfx;
-    const Uint8* keys = nullptr;
-    Uint64 prevCounter = 0;
+    double prevTime = 0;
     double dt = 1.0 / 60.0;
     bool quit = false;
     bool escapeQuits = true;          // lt_escape_quits() opts out
@@ -33,51 +36,9 @@ struct Engine {
     long frame = 0;
     double fixedDt = 0;               // >0 = deterministic timing mode
     std::unordered_map<std::string, bool> prevDown; // for _pressed edges
+    bool prevTouchDown = false;                     // for lt_touch_pressed
 };
 Engine E;
-
-void openFirstPad() {
-    if (E.pad) return;
-    for (int i = 0; i < SDL_NumJoysticks(); i++) {
-        if (SDL_IsGameController(i)) {
-            E.pad = SDL_GameControllerOpen(i);
-            if (E.pad) {
-                std::fprintf(stderr, "lantern: gamepad '%s'\n",
-                             SDL_GameControllerName(E.pad));
-                return;
-            }
-        }
-    }
-}
-
-struct Binding {
-    SDL_Scancode key;
-    SDL_GameControllerButton btn;   // SDL_CONTROLLER_BUTTON_INVALID = none
-    SDL_GameControllerAxis axis;    // SDL_CONTROLLER_AXIS_INVALID = none
-    int axisSign;                   // -1 / +1 for stick directions
-};
-
-const std::unordered_map<std::string, Binding>& bindings() {
-    using B = SDL_GameControllerButton;
-    using A = SDL_GameControllerAxis;
-    static const std::unordered_map<std::string, Binding> m = {
-        {"left",   {SDL_SCANCODE_LEFT,  SDL_CONTROLLER_BUTTON_DPAD_LEFT,  A::SDL_CONTROLLER_AXIS_LEFTX, -1}},
-        {"right",  {SDL_SCANCODE_RIGHT, SDL_CONTROLLER_BUTTON_DPAD_RIGHT, A::SDL_CONTROLLER_AXIS_LEFTX, +1}},
-        {"up",     {SDL_SCANCODE_UP,    SDL_CONTROLLER_BUTTON_DPAD_UP,    A::SDL_CONTROLLER_AXIS_LEFTY, -1}},
-        {"down",   {SDL_SCANCODE_DOWN,  SDL_CONTROLLER_BUTTON_DPAD_DOWN,  A::SDL_CONTROLLER_AXIS_LEFTY, +1}},
-        {"z",      {SDL_SCANCODE_Z,      B::SDL_CONTROLLER_BUTTON_A, A::SDL_CONTROLLER_AXIS_INVALID, 0}},
-        {"x",      {SDL_SCANCODE_X,      B::SDL_CONTROLLER_BUTTON_B, A::SDL_CONTROLLER_AXIS_INVALID, 0}},
-        {"c",      {SDL_SCANCODE_C,      B::SDL_CONTROLLER_BUTTON_Y, A::SDL_CONTROLLER_AXIS_INVALID, 0}},
-        {"space",  {SDL_SCANCODE_SPACE,  B::SDL_CONTROLLER_BUTTON_A, A::SDL_CONTROLLER_AXIS_INVALID, 0}},
-        {"return", {SDL_SCANCODE_RETURN, B::SDL_CONTROLLER_BUTTON_START, A::SDL_CONTROLLER_AXIS_INVALID, 0}},
-        {"escape", {SDL_SCANCODE_ESCAPE, B::SDL_CONTROLLER_BUTTON_BACK, A::SDL_CONTROLLER_AXIS_INVALID, 0}},
-        {"a",      {SDL_SCANCODE_A, B::SDL_CONTROLLER_BUTTON_INVALID, A::SDL_CONTROLLER_AXIS_INVALID, 0}},
-        {"s",      {SDL_SCANCODE_S, B::SDL_CONTROLLER_BUTTON_INVALID, A::SDL_CONTROLLER_AXIS_INVALID, 0}},
-        {"d",      {SDL_SCANCODE_D, B::SDL_CONTROLLER_BUTTON_INVALID, A::SDL_CONTROLLER_AXIS_INVALID, 0}},
-        {"w",      {SDL_SCANCODE_W, B::SDL_CONTROLLER_BUTTON_INVALID, A::SDL_CONTROLLER_AXIS_INVALID, 0}},
-    };
-    return m;
-}
 
 lt::Mat4 trs(float x, float y, float z, float rx, float ry, float rz,
              float sx, float sy, float sz) {
@@ -91,46 +52,13 @@ lt::Mat4 trs(float x, float y, float z, float rx, float ry, float rz,
 
 extern "C" {
 
-// tear down whatever a partially-failed boot created — lt_boot's "0 =
-// failed" contract must not leak a live window/renderer behind it
-static int bootFail(const char* what) {
-    std::fprintf(stderr, "%s: %s\n", what, SDL_GetError());
-    if (E.frameTex) SDL_DestroyTexture(E.frameTex);
-    if (E.ren) SDL_DestroyRenderer(E.ren);
-    if (E.win) SDL_DestroyWindow(E.win);
-    SDL_Quit();
-    E = Engine{};
-    return 0;
-}
-
 int lt_boot(const char* title, int window_scale) {
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) !=
-        0) {
-        std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
+    if (!lt::platInit(title, window_scale)) return 0;
+    if (!E.gfx.init()) {
+        std::fprintf(stderr, "gfx init failed\n");
+        lt::platShutdown();
         return 0;
     }
-    if (window_scale < 1) window_scale = 3;
-    E.win = SDL_CreateWindow(
-        title ? title : "lantern", SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED, lt::SCREEN_W * window_scale,
-        lt::SCREEN_H * window_scale,
-        SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
-    if (!E.win) return bootFail("SDL_CreateWindow");
-    // Integer-scale with nearest sampling — the pixel identity lives here.
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
-    // LANTERN_NOVSYNC=1 uncaps the frame rate (benchmarks/CI only)
-    Uint32 rflags = std::getenv("LANTERN_NOVSYNC")
-                        ? SDL_RENDERER_ACCELERATED
-                        : SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC;
-    E.ren = SDL_CreateRenderer(E.win, -1, rflags);
-    if (!E.ren) return bootFail("SDL_CreateRenderer");
-    E.frameTex = SDL_CreateTexture(E.ren, SDL_PIXELFORMAT_ABGR8888,
-                                   SDL_TEXTUREACCESS_STREAMING, lt::SCREEN_W,
-                                   lt::SCREEN_H);
-    if (!E.frameTex) return bootFail("SDL_CreateTexture");
-    if (!E.gfx.init()) return bootFail("gfx init");
-    E.keys = SDL_GetKeyboardState(nullptr);
-    E.prevCounter = SDL_GetPerformanceCounter();
     // engine-owned frame-verification contract (any host, Lua or C):
     // LANTERN_SHOT=<prefix> [LANTERN_SHOT_FRAME=N] → save <prefix>.bmp at
     // frame N (default 60) and request quit.
@@ -143,44 +71,31 @@ int lt_boot(const char* title, int window_scale) {
         E.fixedDt = std::atof(fd);
         if (E.fixedDt <= 0 || E.fixedDt >= 1.0) E.fixedDt = 1.0 / 60.0;
     }
-    openFirstPad();
+    E.prevTime = lt::platTime();
+    E.booted = true;
     lt::audioInit(); // failure = silent engine, not a boot failure
     return 1;
 }
 
 void lt_shutdown(void) {
     lt::audioShutdown();
-    if (E.pad) SDL_GameControllerClose(E.pad);
-    if (E.frameTex) SDL_DestroyTexture(E.frameTex);
-    if (E.ren) SDL_DestroyRenderer(E.ren);
-    if (E.win) SDL_DestroyWindow(E.win);
-    SDL_Quit();
+    lt::platShutdown();
     E = Engine{};
 }
 
 int lt_frame_poll(void) {
-    if (!E.win) return 0; // not booted (or boot failed): never loop
+    if (!E.booted) return 0; // not booted (or boot failed): never loop
     // snapshot last frame's state for _pressed edge detection
-    for (const auto& [name, bd] : bindings()) {
-        (void)bd;
-        E.prevDown[name] = lt_input_down(name.c_str()) != 0;
-    }
-    SDL_Event e;
-    while (SDL_PollEvent(&e)) {
-        if (e.type == SDL_QUIT) E.quit = true;
-        if (E.escapeQuits && e.type == SDL_KEYDOWN &&
-            e.key.keysym.scancode == SDL_SCANCODE_ESCAPE)
-            E.quit = true; // default dev behavior; lt_escape_quits(0) opts out
-        if (e.type == SDL_CONTROLLERDEVICEADDED) openFirstPad();
-        if (e.type == SDL_CONTROLLERDEVICEREMOVED && E.pad) {
-            SDL_GameControllerClose(E.pad);
-            E.pad = nullptr;
-            openFirstPad();
-        }
-    }
-    Uint64 now = SDL_GetPerformanceCounter();
-    E.dt = (now - E.prevCounter) / (double)SDL_GetPerformanceFrequency();
-    E.prevCounter = now;
+    for (const char* name : kInputNames)
+        E.prevDown[name] = lt_input_down(name) != 0;
+    E.prevTouchDown = lt::platTouch().down;
+    if (!lt::platPoll()) E.quit = true;
+    // default dev behavior: Escape quits; lt_escape_quits(0) opts out
+    if (E.escapeQuits && lt::platInputDown("escape") && !E.prevDown["escape"])
+        E.quit = true;
+    double now = lt::platTime();
+    E.dt = now - E.prevTime;
+    E.prevTime = now;
     if (E.dt > 0.1) E.dt = 0.1;
     if (E.fixedDt > 0) E.dt = E.fixedDt; // deterministic mode
     return E.quit ? 0 : 1;
@@ -191,24 +106,14 @@ double lt_frame_dt(void) { return E.dt; }
 void lt_frame_begin(void) { E.gfx.beginFrame(); }
 
 void lt_frame_end(void) {
-    if (!E.ren) return; // not booted
+    if (!E.booted) return;
     E.gfx.endFrame(); // flush the 2D batch into our framebuffer
     if (E.shotPath && E.frame == E.shotFrame) {
         E.gfx.screenshot(std::string(E.shotPath) + ".bmp");
         E.quit = true; // verification run: capture, then exit the loop
     }
     E.frame++;
-    SDL_UpdateTexture(E.frameTex, nullptr, E.gfx.framebuffer(),
-                      lt::SCREEN_W * 4);
-    int dw, dh;
-    SDL_GetRendererOutputSize(E.ren, &dw, &dh);
-    int s = std::max(1, std::min(dw / lt::SCREEN_W, dh / lt::SCREEN_H));
-    SDL_Rect dst{(dw - lt::SCREEN_W * s) / 2, (dh - lt::SCREEN_H * s) / 2,
-                 lt::SCREEN_W * s, lt::SCREEN_H * s};
-    SDL_SetRenderDrawColor(E.ren, 13, 13, 15, 255);
-    SDL_RenderClear(E.ren);
-    SDL_RenderCopy(E.ren, E.frameTex, nullptr, &dst);
-    SDL_RenderPresent(E.ren);
+    lt::platPresent(E.gfx.framebuffer());
 }
 
 void lt_run(lt_update_fn update, lt_draw_fn draw) {
@@ -321,22 +226,7 @@ void lt_print(const char* text, float x, float y, float r, float g, float b,
     E.gfx.print(text, x, y, r, g, b, a);
 }
 
-int lt_input_down(const char* name) {
-    auto it = bindings().find(name);
-    if (it == bindings().end()) return 0;
-    const Binding& bd = it->second;
-    if (E.keys && E.keys[bd.key]) return 1;
-    if (E.pad) {
-        if (bd.btn != SDL_CONTROLLER_BUTTON_INVALID &&
-            SDL_GameControllerGetButton(E.pad, bd.btn))
-            return 1;
-        if (bd.axis != SDL_CONTROLLER_AXIS_INVALID) {
-            int v = SDL_GameControllerGetAxis(E.pad, bd.axis);
-            if (bd.axisSign > 0 ? v > 13000 : v < -13000) return 1;
-        }
-    }
-    return 0;
-}
+int lt_input_down(const char* name) { return lt::platInputDown(name); }
 
 int lt_input_pressed(const char* name) {
     if (!lt_input_down(name)) return 0;
@@ -344,18 +234,20 @@ int lt_input_pressed(const char* name) {
     return (it == E.prevDown.end() || !it->second) ? 1 : 0;
 }
 
-int lt_gamepad_connected(void) { return E.pad != nullptr; }
+int lt_gamepad_connected(void) { return lt::platGamepadConnected(); }
 
 void lt_rumble(float low, float high, int duration_ms) {
-    if (!E.pad || duration_ms <= 0) return;
-    auto clamp16 = [](float v) {
-        if (v < 0) v = 0;
-        if (v > 1) v = 1;
-        return (Uint16)(v * 65535.0f);
-    };
-    SDL_GameControllerRumble(E.pad, clamp16(low), clamp16(high),
-                             (Uint32)duration_ms);
+    lt::platRumble(low, high, duration_ms);
 }
+
+int lt_touch_down(void) { return lt::platTouch().down ? 1 : 0; }
+
+int lt_touch_pressed(void) {
+    return (lt::platTouch().down && !E.prevTouchDown) ? 1 : 0;
+}
+
+float lt_touch_x(void) { return lt::platTouch().x; }
+float lt_touch_y(void) { return lt::platTouch().y; }
 
 int lt_sound_load(const char* wav_path) { return lt::audioLoad(wav_path); }
 
@@ -378,39 +270,31 @@ static bool saveNameOk(const char* n) {
     return true;
 }
 
-static std::string savePath(const char* name) {
-    char* pref = SDL_GetPrefPath("lantern", "saves");
-    if (!pref) return {};
-    std::string p = std::string(pref) + name;
-    SDL_free(pref);
-    return p;
-}
-
 int lt_save_write(const char* name, const void* data, int len) {
     if (!saveNameOk(name) || len < 0) return 0;
-    std::string p = savePath(name);
+    std::string p = lt::platSavePath(name);
     if (p.empty()) return 0;
-    SDL_RWops* f = SDL_RWFromFile(p.c_str(), "wb");
+    FILE* f = std::fopen(p.c_str(), "wb");
     if (!f) return 0;
-    size_t wrote = len ? SDL_RWwrite(f, data, 1, (size_t)len) : 0;
-    SDL_RWclose(f);
+    size_t wrote = len ? std::fwrite(data, 1, (size_t)len, f) : 0;
+    std::fclose(f);
     return wrote == (size_t)len ? 1 : 0;
 }
 
 int lt_save_read(const char* name, void* buf, int buf_len) {
     if (!saveNameOk(name) || buf_len < 0) return -1;
-    std::string p = savePath(name);
+    std::string p = lt::platSavePath(name);
     if (p.empty()) return -1;
-    SDL_RWops* f = SDL_RWFromFile(p.c_str(), "rb");
+    FILE* f = std::fopen(p.c_str(), "rb");
     if (!f) return -1;
-    int got = (int)SDL_RWread(f, buf, 1, (size_t)buf_len);
-    SDL_RWclose(f);
+    int got = (int)std::fread(buf, 1, (size_t)buf_len, f);
+    std::fclose(f);
     return got;
 }
 
 double lt_time(void) {
     if (E.fixedDt > 0) return E.frame * E.fixedDt; // deterministic mode
-    return SDL_GetTicks64() / 1000.0;
+    return lt::platTime();
 }
 
 } // extern "C"

@@ -22,7 +22,8 @@ add_library(lantern_core STATIC
     src/engine.cpp
     src/gfx.cpp
     src/obj.cpp
-    src/audio.cpp)
+    src/audio.cpp
+    src/platform_sdl.cpp)
 target_include_directories(lantern_core
     PUBLIC include
     PRIVATE ${SDL2_INCLUDE_DIRS})

@@ -146,6 +146,16 @@ int    lt_gamepad_connected(void);
 /* Rumble the connected pad (no-op without one). Intensities 0..1.          */
 void   lt_rumble(float low, float high, int duration_ms);
 
+/* ---- touch (single point, 3DS-style) ----------------------------------- */
+/* One touch point, like the 3DS touchscreen — deliberately not multitouch.
+ * Coordinates are 400x240 screen pixels (the letterbox is undone for you),
+ * clamped to the screen. While nothing is touching, _x/_y keep the last
+ * touched position. On desktop the left mouse button is the finger.        */
+int    lt_touch_down(void);       /* held now */
+int    lt_touch_pressed(void);    /* went down this frame */
+float  lt_touch_x(void);
+float  lt_touch_y(void);
+
 /* ---- save data --------------------------------------------------------- */
 /* Persistent per-game storage (binary-safe). Files live under the user's
  * application-support dir: <support>/lantern/saves/<name>. Names:
