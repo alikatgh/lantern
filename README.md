@@ -32,8 +32,10 @@ that combination is what lets the engine screenshot-test itself in CI.
   edge-triggered, plus rumble; **single-point touch, 3DS-style** (mouse on
   desktop, real touch on iOS). **Save data**: binary-safe per-name storage.
 - **Runs on iPhone/iPad**: the platform layer has a native iOS backend —
-  Metal-presented (the rasterizer stays ours), UITouch, AVAudio.
-  `tools/build_ios_sim.sh` builds a simulator app; frames render
+  Metal-presented (the rasterizer stays ours), UITouch, AVAudio, and
+  GCController gamepads. `tools/build_ios_sim.sh [game_dir]` builds a
+  simulator app with a **wick game bundled** (Kora Night by default —
+  wick has no JIT, so it's iOS-legal by construction); frames render
   byte-identical to macOS.
 - Headroom to spare: ~10k lit mesh draw calls fit the 60 fps budget
   (`games/stress/`) — a real 3DS-class scene needs a few hundred.

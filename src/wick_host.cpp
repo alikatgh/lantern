@@ -3,6 +3,7 @@
 // error screen with file:line, LANTERN_SHOT handled by the engine. The
 // lt.* API is registered with TYPED signatures, so a wrong argument is a
 // compile error on screen, not a runtime surprise.
+#include "wick_host.hpp"
 #include "lantern.h"
 #include "../wick/wick.hpp"
 #include <cstdio>
@@ -98,6 +99,10 @@ static Value wLoadSave(VM& vm, const Value* a, int) {
     if (got < 0) return Value::nil();          // str? — nil means no save
     return wick::makeStr(vm, std::string(buf.data(), (size_t)got));
 }
+static Value wTouchDown(VM&, const Value*, int) { return Value::boolean(lt_touch_down() != 0); }
+static Value wTouchPressed(VM&, const Value*, int) { return Value::boolean(lt_touch_pressed() != 0); }
+static Value wTouchX(VM&, const Value*, int) { return Value::num(lt_touch_x()); }
+static Value wTouchY(VM&, const Value*, int) { return Value::num(lt_touch_y()); }
 static Value wQuit(VM&, const Value*, int) { lt_quit(); return Value::nil(); }
 static Value wEscQuits(VM&, const Value* a, int) { lt_escape_quits(a[0].b ? 1 : 0); return Value::nil(); }
 static Value wTime(VM&, const Value*, int) { return Value::num(lt_time()); }
@@ -131,6 +136,10 @@ static bool registerLT(VM* vm, std::string& err) {
         {"key(str): bool", wKey},
         {"pressed(str): bool", wPressed},
         {"gamepad(): bool", wGamepad},
+        {"touch_down(): bool", wTouchDown},
+        {"touch_pressed(): bool", wTouchPressed},
+        {"touch_x(): num", wTouchX},
+        {"touch_y(): num", wTouchY},
         {"rumble(num, num, num)", wRumble},
         {"load_sound(str): num", wLoadSound},
         {"play(num, num=1, num=0): num", wPlay},
@@ -198,50 +207,71 @@ static void drawErrorScreen() {
     }
 }
 
-int runWickHost(const std::string& gameDir) {
+// ---- host state (shared by the desktop loop and the embedded stepper) ----
+
+static VM* g_vm = nullptr;
+static std::string g_mainWick;
+static time_t g_mtime = 0;
+static double g_nextCheck = 0.5;
+
+bool wickHostInit(const std::string& gameDir) {
     g_dir = gameDir;
-    if (!lt_boot("lantern (wick)", 3)) return 1;
-
-    VM* vm = wick::create();
+    g_vm = wick::create();
     std::string err;
-    if (!registerLT(vm, err)) {
+    if (!registerLT(g_vm, err)) {
         std::fprintf(stderr, "wick natives: %s\n", err.c_str());
-        return 1;
+        wick::destroy(g_vm);
+        g_vm = nullptr;
+        return false;
     }
-    std::string mainWick = gameDir + "/main.wick";
-    loadWickGame(vm, mainWick);
-    time_t mtime = fileMtime(mainWick);
-    double nextCheck = 0.5;
+    g_mainWick = gameDir + "/main.wick";
+    loadWickGame(g_vm, g_mainWick);
+    g_mtime = fileMtime(g_mainWick);
+    g_nextCheck = 0.5;
+    return true;
+}
 
-    while (lt_frame_poll()) {
-        nextCheck -= lt_frame_dt();
-        if (nextCheck <= 0) {
-            nextCheck = 0.5;
-            time_t m = fileMtime(mainWick);
-            if (m != mtime) {
-                mtime = m;
-                std::fprintf(stderr, "lantern: reloading %s\n",
-                             mainWick.c_str());
-                loadWickGame(vm, mainWick);
-            }
+void wickHostFrame() {
+    if (!g_vm) return;
+    std::string err;
+    // hot-reload: poll mtime twice a second
+    g_nextCheck -= lt_frame_dt();
+    if (g_nextCheck <= 0) {
+        g_nextCheck = 0.5;
+        time_t m = fileMtime(g_mainWick);
+        if (m != g_mtime) {
+            g_mtime = m;
+            std::fprintf(stderr, "lantern: reloading %s\n",
+                         g_mainWick.c_str());
+            loadWickGame(g_vm, g_mainWick);
         }
-        if (g_error.empty() &&
-            !wick::call(vm, "update", lt_frame_dt(), true, err)) {
-            g_error = err;
-            std::fprintf(stderr, "wick: %s\n", err.c_str());
-        }
-        lt_frame_begin();
-        if (g_error.empty() && !wick::call(vm, "draw", 0, false, err)) {
-            g_error = err;
-            std::fprintf(stderr, "wick: %s\n", err.c_str());
-        }
-        if (!g_error.empty()) drawErrorScreen();
-        lt_frame_end();
-        wick::collect(vm); // GC only ever runs here, between frames
     }
+    if (g_error.empty() &&
+        !wick::call(g_vm, "update", lt_frame_dt(), true, err)) {
+        g_error = err;
+        std::fprintf(stderr, "wick: %s\n", err.c_str());
+    }
+    lt_frame_begin();
+    if (g_error.empty() && !wick::call(g_vm, "draw", 0, false, err)) {
+        g_error = err;
+        std::fprintf(stderr, "wick: %s\n", err.c_str());
+    }
+    if (!g_error.empty()) drawErrorScreen();
+    lt_frame_end();
+    wick::collect(g_vm); // GC only ever runs here, between frames
+}
 
+void wickHostShutdown() {
+    if (g_vm) wick::destroy(g_vm);
+    g_vm = nullptr;
+}
+
+int runWickHost(const std::string& gameDir) {
+    if (!lt_boot("lantern (wick)", 3)) return 1;
+    if (!wickHostInit(gameDir)) return 1;
+    while (lt_frame_poll()) wickHostFrame();
     int rc = g_error.empty() ? 0 : 1;
-    wick::destroy(vm);
+    wickHostShutdown();
     lt_shutdown();
     return rc;
 }

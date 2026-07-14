@@ -11,11 +11,13 @@
 #include "gfx.hpp" // SCREEN_W/H
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
+#import <GameController/GameController.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <string>
 
 namespace lt {
 namespace {
@@ -175,11 +177,33 @@ double platTime() {
         .count();
 }
 
-// No keyboard on a phone; the named-button set arrives with game-
-// controller support (GCController) later. Touch is the input story.
-int platInputDown(const char* /*name*/) { return 0; }
-int platGamepadConnected() { return 0; }
-void platRumble(float /*low*/, float /*high*/, int /*durationMs*/) {}
+// No keyboard on a phone: the named-button set maps onto the first
+// connected game controller (GCController mirrors the SDL bindings —
+// dpad/left-stick = directions, A=z/space, B=x, Y=c, Menu=return).
+// Touch remains the primary phone input.
+int platInputDown(const char* name) {
+    GCExtendedGamepad* g = GCController.controllers.firstObject.extendedGamepad;
+    if (!g || !name) return 0;
+    const float T = 0.4f; // stick threshold ~ SDL's 13000/32767
+    GCControllerDirectionPad* stick = g.leftThumbstick;
+    std::string n = name;
+    if (n == "left") return g.dpad.left.pressed || stick.xAxis.value < -T;
+    if (n == "right") return g.dpad.right.pressed || stick.xAxis.value > T;
+    if (n == "up") return g.dpad.up.pressed || stick.yAxis.value > T;
+    if (n == "down") return g.dpad.down.pressed || stick.yAxis.value < -T;
+    if (n == "z" || n == "space") return g.buttonA.pressed;
+    if (n == "x") return g.buttonB.pressed;
+    if (n == "c") return g.buttonY.pressed;
+    if (n == "return") return g.buttonMenu.pressed;
+    if (n == "escape") return g.buttonOptions ? g.buttonOptions.pressed : 0;
+    return 0; // a/s/d/w are keyboard-only names
+}
+int platGamepadConnected() {
+    return GCController.controllers.firstObject.extendedGamepad != nil;
+}
+void platRumble(float /*low*/, float /*high*/, int /*durationMs*/) {
+    // GCController haptics need a CHHapticEngine per controller — later.
+}
 
 PlatformTouch platTouch() {
     PlatformTouch t;
