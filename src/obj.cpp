@@ -15,17 +15,30 @@ namespace lt {
 
 struct ObjIndex { int v = 0, t = 0, n = 0; };
 
+// strict integer parse: fails on empty or trailing garbage ("3x" is an
+// error, not 3 — atoi would silently accept it and corrupt the face)
+static bool parseInt(const char* s, const char* end, int& out) {
+    char* stop = nullptr;
+    long v = std::strtol(s, &stop, 10);
+    if (stop == s || (end ? stop != end : *stop != '\0')) return false;
+    out = (int)v;
+    return out != 0; // OBJ indices are 1-based; 0 is always invalid
+}
+
 static bool parseIndex(const char* tok, ObjIndex& out) {
     // forms: "1", "1/2", "1//3", "1/2/3" (also negative)
     out = ObjIndex{};
-    out.v = std::atoi(tok);
     const char* s1 = std::strchr(tok, '/');
+    if (!parseInt(tok, s1, out.v)) return false;
     if (s1) {
-        if (s1[1] != '/') out.t = std::atoi(s1 + 1);
         const char* s2 = std::strchr(s1 + 1, '/');
-        if (s2) out.n = std::atoi(s2 + 1);
+        if (s1[1] != '/' && s1[1] != '\0' &&
+            !parseInt(s1 + 1, s2, out.t))
+            return false;
+        if (s2 && s2[1] != '\0' && !parseInt(s2 + 1, nullptr, out.n))
+            return false;
     }
-    return out.v != 0;
+    return true;
 }
 
 static int resolve(int idx, int count) { // 1-based or negative-relative
@@ -41,7 +54,8 @@ bool loadObj(const char* path, std::vector<float>& out) {
     }
     std::vector<Vec3> pos, nrm;
     std::vector<float> uv; // pairs
-    char line[1024];
+    int badFaces = 0, truncated = 0;
+    char line[4096];
     auto emit = [&](const ObjIndex& a, Vec3 faceN) {
         int vi = resolve(a.v, (int)pos.size());
         if (vi < 0 || vi >= (int)pos.size()) return;
@@ -62,6 +76,13 @@ bool loadObj(const char* path, std::vector<float>& out) {
         out.insert(out.end(), {p.x, p.y, p.z, n.x, n.y, n.z, u, v, 1, 1, 1, 1});
     };
     while (std::fgets(line, sizeof line, f)) {
+        // a line longer than the buffer would silently split into two bogus
+        // lines — detect, discard the remainder, and say so
+        if (!std::strchr(line, '\n') && !std::feof(f)) {
+            truncated++;
+            int ch;
+            while ((ch = std::fgetc(f)) != EOF && ch != '\n') {}
+        }
         if (line[0] == 'v' && line[1] == ' ') {
             Vec3 p;
             if (std::sscanf(line + 2, "%f %f %f", &p.x, &p.y, &p.z) == 3)
@@ -78,13 +99,20 @@ bool loadObj(const char* path, std::vector<float>& out) {
             }
         } else if (line[0] == 'f' && line[1] == ' ') {
             std::vector<ObjIndex> face;
+            bool bad = false;
             char* save = nullptr;
             for (char* tok = strtok_r(line + 2, " \t\r\n", &save); tok;
                  tok = strtok_r(nullptr, " \t\r\n", &save)) {
                 ObjIndex ix;
-                if (parseIndex(tok, ix)) face.push_back(ix);
+                if (parseIndex(tok, ix))
+                    face.push_back(ix);
+                else
+                    bad = true; // don't silently reconnect the polygon
             }
-            if (face.size() < 3) continue;
+            if (bad || face.size() < 3) {
+                if (bad) badFaces++;
+                continue;
+            }
             // flat face normal from the first three vertices (fallback)
             Vec3 fn{0, 1, 0};
             {
@@ -104,6 +132,11 @@ bool loadObj(const char* path, std::vector<float>& out) {
         }
     }
     std::fclose(f);
+    if (badFaces || truncated)
+        std::fprintf(stderr,
+                     "obj: %s: dropped %d malformed face(s), truncated %d "
+                     "over-long line(s)\n",
+                     path, badFaces, truncated);
     if (out.empty()) {
         std::fprintf(stderr, "obj: %s produced no triangles\n", path);
         return false;

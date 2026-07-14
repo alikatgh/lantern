@@ -1,20 +1,16 @@
 /* hello_c — proves the lantern C ABI from pure C (no Lua, no C++).
  * Build: the lantern_hello_c CMake target. Drives the loop manually
  * (lt_frame_poll/begin/end) — the other half of the API the Lua host
- * doesn't exercise. LANTERN_SHOT works here too.
+ * doesn't exercise. LANTERN_SHOT / LANTERN_SHOT_FRAME / LANTERN_FIXED_DT
+ * are engine-owned and just work here, no hand-rolled logic needed.
  */
 #include <lantern.h>
 #include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 int main(void) {
     if (!lt_boot("lantern hello_c", 3)) return 1;
     int cube = lt_mesh_cube();
-    const char* shot = getenv("LANTERN_SHOT");
     double t = 0.0;
-    int frame = 0;
 
     while (lt_frame_poll()) {
         t += lt_frame_dt();
@@ -30,13 +26,6 @@ int main(void) {
         lt_print("HELLO FROM C - LANTERN ABI", 4, (float)lt_screen_h() - 11,
                  1, 1, 1, 0.9f);
         lt_frame_end();
-        if (shot && frame == 60) {
-            char path[512];
-            snprintf(path, sizeof path, "%s.bmp", shot);
-            lt_screenshot(path);
-            break;
-        }
-        frame++;
     }
     lt_shutdown();
     return 0;

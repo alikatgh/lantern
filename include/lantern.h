@@ -25,8 +25,19 @@ extern "C" {
 #endif
 
 /* ---- lifecycle ------------------------------------------------------- */
-int    lt_boot(const char* title, int window_scale); /* 1 ok, 0 failed      */
+/* 1 ok; 0 failed (everything partially created is torn down again —
+ * check this before calling lt_run!).                                     */
+int    lt_boot(const char* title, int window_scale);
 void   lt_shutdown(void);
+/* Request a clean exit: the current/next lt_frame_poll returns 0.         */
+void   lt_quit(void);
+/* By default the keyboard Escape key quits (dev convenience). Games that
+ * handle "escape" themselves (pause menus) call lt_escape_quits(0).       */
+void   lt_escape_quits(int enable);
+/* Free every game-created mesh, texture, and sound (built-ins survive).
+ * Existing handles become invalid (draws with them are safe no-ops).
+ * The Lua host calls this on hot-reload so reloads don't leak.            */
+void   lt_resources_reset(void);
 /* Convenience fixed loop: calls update(dt)/draw() until quit.             */
 typedef void (*lt_update_fn)(double dt);
 typedef void (*lt_draw_fn)(void);
@@ -36,6 +47,15 @@ int    lt_frame_poll(void);       /* pump events; 0 = quit requested       */
 void   lt_frame_begin(void);      /* bind the 400x240 target               */
 void   lt_frame_end(void);        /* flush 2D, integer-blit, swap          */
 double lt_frame_dt(void);         /* seconds since previous poll (<=0.1)   */
+
+/* Environment contract (read at lt_boot, honored for EVERY host):
+ *   LANTERN_SHOT=<prefix>     save <prefix>.bmp of the 400x240 frame at
+ *                             frame N, then request quit (CI screenshots)
+ *   LANTERN_SHOT_FRAME=N      which frame to capture (default 60)
+ *   LANTERN_FIXED_DT=<sec|1>  deterministic mode: lt_frame_dt and lt_time
+ *                             advance by a fixed step — REQUIRED for
+ *                             cross-machine-reproducible screenshots
+ *   LANTERN_NOVSYNC=1         uncap the frame rate (benchmarks)           */
 
 /* ---- screen ----------------------------------------------------------- */
 int    lt_screen_w(void);         /* 400 */
@@ -128,10 +148,11 @@ void   lt_rumble(float low, float high, int duration_ms);
 
 /* ---- save data --------------------------------------------------------- */
 /* Persistent per-game storage (binary-safe). Files live under the user's
- * application-support dir: <support>/lantern/<name>. Names: [A-Za-z0-9_.-]
- * only (anything else is rejected).                                        */
+ * application-support dir: <support>/lantern/saves/<name>. Names:
+ * [A-Za-z0-9_.-] only (anything else is rejected).                         */
 int    lt_save_write(const char* name, const void* data, int len); /* 1 ok  */
-/* Returns bytes read (0..buf_len), or -1 if the save doesn't exist.        */
+/* Returns bytes read (0..buf_len; 0 = an existing empty save), or -1 when
+ * the save can't be read: missing, unreadable, or an invalid name.         */
 int    lt_save_read(const char* name, void* buf, int buf_len);
 
 /* ---- misc -------------------------------------------------------------- */

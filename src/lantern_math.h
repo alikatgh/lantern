@@ -72,18 +72,14 @@ inline Mat4 perspective(float fovyDeg, float aspect, float znear, float zfar) {
     return r;
 }
 
-inline Mat4 ortho(float l, float r_, float b, float t, float zn, float zf) {
-    Mat4 r;
-    r.m[0] = 2 / (r_ - l); r.m[5] = 2 / (t - b); r.m[10] = -2 / (zf - zn);
-    r.m[12] = -(r_ + l) / (r_ - l);
-    r.m[13] = -(t + b) / (t - b);
-    r.m[14] = -(zf + zn) / (zf - zn);
-    return r;
-}
-
 inline Mat4 lookAt(Vec3 eye, Vec3 target, Vec3 up) {
     Vec3 f = norm(sub(target, eye));
     Vec3 s = norm(cross(f, up));
+    // view direction parallel to up (straight up/down camera): pick any
+    // orthogonal basis instead of collapsing to zero
+    if (dot(s, s) < 1e-10f) s = norm(cross(f, Vec3{0, 0, 1}));
+    if (dot(s, s) < 1e-10f) s = {1, 0, 0}; // f was ±Z too (can't happen with
+                                           // both, but stay total)
     Vec3 u = cross(s, f);
     Mat4 r;
     r.m[0] = s.x; r.m[4] = s.y; r.m[8] = s.z;

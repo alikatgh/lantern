@@ -8,4 +8,5 @@ int  audioLoad(const char* wavPath);            // -1 on failure
 int  audioPlay(int sound, float volume, bool loop); // returns channel or -1
 void audioStop(int channel);
 void audioMaster(float volume);
+void audioReset();              // stop all channels, free all sounds
 } // namespace lt

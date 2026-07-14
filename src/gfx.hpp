@@ -16,8 +16,12 @@ constexpr int SCREEN_H = 240;
 constexpr int MAX_POINT_LIGHTS = 4;   // PICA200 had 4 hardware lights
 constexpr int VERT_FLOATS = 12;       // pos3 normal3 uv2 rgba4
 
+struct TexClamp; // texel bounds for atlas-safe sampling (gfx.cpp)
+
 struct Gfx {
     bool init();
+    void reset();                      // free all game meshes/textures/quads
+                                       // (built-ins survive; hot-reload)
     void beginFrame();                 // clear color + depth, reset 2D batch
     void endFrame();                   // flush the 2D batch onto the frame
     const uint8_t* framebuffer() const { return fb_.data(); } // RGBA, top-down
@@ -88,11 +92,12 @@ struct Gfx {
 
     void emitTriangles(const float* verts, int vertCount, const float* verts2,
                        float lerpT, int tex, const Mat4& model, float r,
-                       float g, float b, bool unlit, RasterMode mode);
+                       float g, float b, bool unlit, RasterMode mode,
+                       const float* uvRect); // {u0,v0,u1,v1} or nullptr
     void rasterTri(const PVert& a, const PVert& b, const PVert& c,
-                   const Tex* tex, RasterMode mode);
+                   const Tex* tex, const TexClamp& uvClamp, RasterMode mode);
     void raster2DTri(const float* v0, const float* v1, const float* v2,
-                     const Tex* tex);
+                     const Tex* tex, const TexClamp& uvClamp);
     void flush2D();
     void pushQuad(int tex, float x, float y, float w, float h, float u0,
                   float v0, float u1, float v1, float r, float g, float b,
@@ -111,8 +116,8 @@ struct Gfx {
     std::vector<Quad2D> quads_;
     int whiteTex_ = -1, fontTex_ = -1, shadowTex_ = -1;
 
-    Mat4 view_, proj_;
-    Vec3 camEye_, camRight_{1, 0, 0}, camUp_{0, 1, 0};
+    Mat4 view_, proj_, vp_;            // vp_ = proj*view, cached per camera
+    Vec3 camRight_{1, 0, 0}, camUp_{0, 1, 0};
     Vec3 lightDir_{0.4f, -1.0f, -0.3f};
     float ambient_ = 0.35f;
     PointLight pointLights_[MAX_POINT_LIGHTS];

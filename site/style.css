@@ -156,13 +156,14 @@ section p.lead { color: var(--dim); max-width: 640px; margin-bottom: 28px; }
 .stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;                       /* hairline dividers via grid gap —      */
+  background: var(--line);        /* no border-left rails (UI rules §2)    */
   border: 1px solid var(--line);
   border-radius: 6px;
   overflow: hidden;
   margin: 36px 0 8px;
 }
-.stat { padding: 18px 20px; border-left: 1px solid var(--line); background: var(--bg2); }
-.stat:first-child { border-left: none; }
+.stat { padding: 18px 20px; background: var(--bg2); }
 .stat b { display: block; font-size: 24px; font-weight: 700; font-family: var(--mono); }
 .stat span { font-size: 13px; color: var(--dim); }
 
@@ -209,7 +210,7 @@ aside.toc h4 {
   margin: 18px 0 6px;
   font-weight: 600;
 }
-aside.toc a { display: block; color: var(--dim); padding: 3px 0 3px 10px; border-left: 1px solid var(--line); }
+aside.toc a { display: block; color: var(--dim); padding: 3px 0 3px 10px; }
 aside.toc a:hover { color: var(--text); text-decoration: none; background: var(--bg2); }
 
 main.doc { min-width: 0; padding-bottom: 80px; }
@@ -220,7 +221,7 @@ main.doc h2 {
   padding-top: 18px;
   border-top: 1px solid var(--line);
 }
-main.doc h3 { font-size: 16px; margin: 28px 0 8px; font-family: var(--mono); color: var(--gold); font-weight: 600; }
+main.doc h3 { font-size: 16px; margin: 28px 0 8px; font-family: var(--mono); color: var(--text); font-weight: 700; }
 main.doc p { margin: 10px 0; max-width: 70ch; }
 main.doc p.dim, main.doc li.dim { color: var(--dim); }
 main.doc ul { margin: 10px 0 10px 22px; }

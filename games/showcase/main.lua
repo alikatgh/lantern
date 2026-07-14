@@ -33,7 +33,7 @@ local state, t = "title", 0          -- title | play | over
 local px, pz = 0, 5.2                -- player
 local score, timer = 0, ROUND
 local wind_in = 3.0                  -- seconds until next gust
-local best = tonumber(lt.load_save("koranight_best") or "0")
+local best = tonumber(lt.load_save("koranight_best") or "") or 0
 
 local function reset_lamps()
   for _, l in ipairs(LAMPS) do l.lit = true end

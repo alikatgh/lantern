@@ -96,6 +96,8 @@ lt.stop(ch)  ·  lt.volume(v)           -- master 0..1
 -- input / misc
 lt.key(name)  ·  lt.pressed(name)      -- held / went-down-this-frame
 lt.gamepad()                           -- pad connected?
+lt.quit()                              -- request a clean exit
+lt.escape_quits(false)                 -- take over the Escape key (pause menus)
 lt.save(name, str)  ·  lt.load_save(name) -- binary-safe; nil if missing
 lt.screenshot("out.bmp")  ·  lt.time()
 ```
@@ -174,6 +176,18 @@ rendered frames, never by "it compiled".**
   shopkeeper, blob shadows under both, two warm point lights, hearts +
   item-panel HUD. `ROOM_AUTO=1` self-walks for LANTERN_SHOT verification.
   Dist 0.6.1 includes it.
+- **v0.6.2 ✅ (2026-07-14) — max-review fix batch.** All 15 confirmed
+  findings from the full-engine adversarial review fixed and regression-
+  verified (report: famicom docs/audits/2026-07-14-lantern-max-review.md):
+  crash/UB class (0-byte saves, empty-WAV loop OOB, negative-color casts,
+  boot-failure leaks, pre-init draws, straight-down camera), rendering
+  (shared-edge double blend via boundary-ownership fill rule, atlas-safe
+  bilinear clamping, cone normals), and contracts (LANTERN_SHOT/_FRAME +
+  new **LANTERN_FIXED_DT** deterministic mode are engine-owned for every
+  host; `lt.quit`/`lt.escape_quits`; `lt_resources_reset` makes hot-reload
+  leak-free). Plus: cached view-projection, hoisted light normalization,
+  nearest white texture, dead-code removal, site CSS rule compliance.
+  Fixed-dt determinism verified by byte-identical repeated captures.
 - **v1.0** — public developer release.
 
 ## Porting notes: KORA (Godot → lantern)

@@ -8,8 +8,9 @@ constraints are the aesthetic — nothing here is a filter.
 400×240 frame is computed by the engine's own software rasterizer —
 transform, clipping, perspective-correct rasterization, depth, bilinear
 sampling, lighting, fog, blending. SDL is OS plumbing only (window, input,
-audio device). Output is deterministic across machines, which is why the
-engine can screenshot-test itself.
+audio device). The rasterizer is bit-identical everywhere; run with
+`LANTERN_FIXED_DT=1` and whole game sessions become deterministic too —
+that combination is what lets the engine screenshot-test itself in CI.
 
 - **2D and 3D in the same frame**: depth-tested gouraud-lit meshes, then
   batched sprites/text composited on top, all at 400×240, integer-upscaled.

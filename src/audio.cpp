@@ -42,17 +42,22 @@ void SDLCALL mixCallback(void*, Uint8* stream, int len) {
     for (Channel& ch : M.channels) {
         if (!ch.active) continue;
         const Sound& s = M.sounds[(size_t)ch.sound];
+        if (s.samples.size() < 2) { // degenerate sound: never index into it
+            ch.active = false;
+            continue;
+        }
+        const float vol = ch.volume * M.master;
         for (int i = 0; i < frames; i++) {
             if (ch.pos + 1 >= s.samples.size()) {
                 if (ch.loop) {
-                    ch.pos = 0;
+                    ch.pos = 0; // size >= 2 guaranteed above, safe to read
                 } else {
                     ch.active = false;
                     break;
                 }
             }
-            out[i * 2] += s.samples[ch.pos] * ch.volume * M.master;
-            out[i * 2 + 1] += s.samples[ch.pos + 1] * ch.volume * M.master;
+            out[i * 2] += s.samples[ch.pos] * vol;
+            out[i * 2 + 1] += s.samples[ch.pos + 1] * vol;
             ch.pos += 2;
         }
     }
@@ -114,6 +119,10 @@ int audioLoad(const char* wavPath) {
         snd.samples.assign((float*)buf, (float*)(buf + len));
     }
     SDL_FreeWAV(buf);
+    if (snd.samples.size() < 2) { // one stereo frame minimum, or reject
+        std::fprintf(stderr, "audio load: %s has no audio data\n", wavPath);
+        return -1;
+    }
     if (M.dev) SDL_LockAudioDevice(M.dev);
     M.sounds.push_back(std::move(snd));
     int id = (int)M.sounds.size() - 1;
@@ -143,10 +152,21 @@ void audioStop(int channel) {
     SDL_UnlockAudioDevice(M.dev);
 }
 
+void audioReset() { // free every loaded sound (hot-reload support)
+    if (M.dev) SDL_LockAudioDevice(M.dev);
+    for (Channel& ch : M.channels) ch.active = false;
+    M.sounds.clear();
+    if (M.dev) SDL_UnlockAudioDevice(M.dev);
+}
+
 void audioMaster(float volume) {
     if (volume < 0) volume = 0;
     if (volume > 1) volume = 1;
+    // same locking discipline as every other mixer mutation — the callback
+    // thread reads master mid-mix
+    if (M.dev) SDL_LockAudioDevice(M.dev);
     M.master = volume;
+    if (M.dev) SDL_UnlockAudioDevice(M.dev);
 }
 
 } // namespace lt

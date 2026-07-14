@@ -269,6 +269,16 @@ static int l_gamepad(lua_State* L) {
     return 1;
 }
 
+static int l_quit(lua_State*) {
+    lt_quit();
+    return 0;
+}
+
+static int l_escape_quits(lua_State* L) {
+    lt_escape_quits(lua_toboolean(L, 1));
+    return 0;
+}
+
 static int l_rumble(lua_State* L) {
     lt_rumble((float)luaL_checknumber(L, 1), (float)luaL_checknumber(L, 2),
               (int)luaL_checkinteger(L, 3));
@@ -294,7 +304,9 @@ static void registerAPI(lua_State* L) {
         {"sprite", l_sprite},       {"sprite_ex", l_sprite_ex},
         {"sprite_uv", l_sprite_uv}, {"print", l_print},
         {"key", l_key},             {"pressed", l_pressed},
-        {"gamepad", l_gamepad},     {"rumble", l_rumble},
+        {"gamepad", l_gamepad},     {"quit", l_quit},
+        {"escape_quits", l_escape_quits},
+        {"rumble", l_rumble},
         {"load_sound", l_load_sound},
         {"play", l_play},           {"stop", l_stop},
         {"volume", l_volume},       {"screenshot", l_screenshot},
@@ -335,10 +347,12 @@ static time_t fileMtime(const std::string& path) {
     return stat(path.c_str(), &st) == 0 ? st.st_mtime : 0;
 }
 
-// Re-run main.lua in the SAME Lua state: globals (and engine-side meshes/
-// textures) persist, so a reload re-creates resources — fine for dev
-// iteration, leaked GL handles are reclaimed at exit.
+// Re-run main.lua in the SAME Lua state (globals persist). All engine-side
+// meshes/textures/sounds from the previous generation are freed first via
+// lt_resources_reset() — the re-run recreates what it needs, so hot-reload
+// sessions don't grow without bound.
 static void loadGame(lua_State* L, const std::string& mainLua) {
+    lt_resources_reset();
     if (luaL_dofile(L, mainLua.c_str()) != LUA_OK) {
         g_error = lua_tostring(L, -1) ? lua_tostring(L, -1) : "unknown error";
         std::fprintf(stderr, "lua: %s\n", g_error.c_str());
@@ -364,9 +378,6 @@ static void drawErrorScreen() {
 
 int main(int argc, char** argv) {
     g_gameDir = argc > 1 ? argv[1] : "games/demo";
-    const char* shot = std::getenv("LANTERN_SHOT");
-    const char* shotFrameEnv = std::getenv("LANTERN_SHOT_FRAME");
-    int shotFrame = shotFrameEnv ? std::atoi(shotFrameEnv) : 60;
 
     if (!lt_boot("lantern", 3)) return 1;
 
@@ -378,7 +389,6 @@ int main(int argc, char** argv) {
     time_t mtime = fileMtime(mainLua);
     double nextCheck = 0.5;
 
-    int frame = 0;
     while (lt_frame_poll()) {
         // hot-reload: poll mtime twice a second
         nextCheck -= lt_frame_dt();
@@ -398,12 +408,7 @@ int main(int argc, char** argv) {
             callGlobal(L, "draw", 0, false);
         if (!g_error.empty()) // update/draw may have just failed
             drawErrorScreen();
-        lt_frame_end(); // flushes the 2D batch into the FBO
-        if (shot && frame == shotFrame) {
-            lt_screenshot((std::string(shot) + ".bmp").c_str());
-            break;
-        }
-        frame++;
+        lt_frame_end(); // 2D flush + present; LANTERN_SHOT is engine-owned
     }
 
     lua_close(L);

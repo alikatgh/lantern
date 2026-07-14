@@ -184,6 +184,8 @@ handled.</p>
   <tr><td>lt.key(name)</td><td>Held right now? Names: <code>left right up down z x c space return escape a s d w</code>.</td></tr>
   <tr><td>lt.pressed(name)</td><td>Went down this frame (edge-triggered — menus, jumps, relighting lamps).</td></tr>
   <tr><td>lt.gamepad()</td><td>Is a controller connected?</td></tr>
+  <tr><td>lt.quit()</td><td>Request a clean exit (the loop ends this frame).</td></tr>
+  <tr><td>lt.escape_quits(false)</td><td>By default the Escape key quits (dev convenience); disable it to run your own pause menu on <code>lt.pressed("escape")</code>.</td></tr>
   <tr><td>lt.rumble(low, high, ms)</td><td>Rumble the pad (no-op without one). Intensities 0..1.</td></tr>
 </table>
 
@@ -241,6 +243,13 @@ the <code>lantern_hello_c</code> CMake target.</p>
   <li><b>Uncapped mode:</b> <code>LANTERN_NOVSYNC=1</code> disables vsync
   for benchmarking (see <code>games/stress/</code> — ~10,300 lit draw calls
   fit the 16.6 ms budget on an M-series laptop).</li>
+  <li><b>Deterministic mode:</b> <code>LANTERN_FIXED_DT=1</code> makes
+  <code>dt</code> and <code>lt.time()</code> advance by a fixed step —
+  repeated screenshot runs become byte-identical, on any machine. Use it
+  for CI captures.</li>
+  <li><b>Hot-reload is leak-free:</b> every reload frees the previous
+  generation's meshes, textures, and sounds before re-running
+  <code>main.lua</code>.</li>
 </ul>
 
 <h2 id="verify">Verification (screenshot your game in CI)</h2>

@@ -7,7 +7,7 @@
 
 local cube = lt.cube()
 local x, y = lt.W / 2, lt.H / 2   -- player position (2D, pixels)
-local best = tonumber(lt.load_save("template_best") or "0")
+local best = tonumber(lt.load_save("template_best") or "") or 0
 local t = 0
 
 -- update runs first each frame (dt = seconds, <= 0.1)

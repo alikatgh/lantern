@@ -25,6 +25,13 @@ struct Engine {
     Uint64 prevCounter = 0;
     double dt = 1.0 / 60.0;
     bool quit = false;
+    bool escapeQuits = true;          // lt_escape_quits() opts out
+    // engine-owned verification contract (works for EVERY host, not just
+    // the Lua runner): LANTERN_SHOT/_FRAME/_FIXED_DT env vars
+    const char* shotPath = nullptr;
+    int shotFrame = 60;
+    long frame = 0;
+    double fixedDt = 0;               // >0 = deterministic timing mode
     std::unordered_map<std::string, bool> prevDown; // for _pressed edges
 };
 Engine E;
@@ -72,9 +79,29 @@ const std::unordered_map<std::string, Binding>& bindings() {
     return m;
 }
 
+lt::Mat4 trs(float x, float y, float z, float rx, float ry, float rz,
+             float sx, float sy, float sz) {
+    return lt::mul(lt::translate(x, y, z),
+                   lt::mul(lt::mul(lt::rotateZ(rz),
+                                   lt::mul(lt::rotateY(ry), lt::rotateX(rx))),
+                           lt::scale(sx, sy, sz)));
+}
+
 } // namespace
 
 extern "C" {
+
+// tear down whatever a partially-failed boot created — lt_boot's "0 =
+// failed" contract must not leak a live window/renderer behind it
+static int bootFail(const char* what) {
+    std::fprintf(stderr, "%s: %s\n", what, SDL_GetError());
+    if (E.frameTex) SDL_DestroyTexture(E.frameTex);
+    if (E.ren) SDL_DestroyRenderer(E.ren);
+    if (E.win) SDL_DestroyWindow(E.win);
+    SDL_Quit();
+    E = Engine{};
+    return 0;
+}
 
 int lt_boot(const char* title, int window_scale) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) !=
@@ -88,10 +115,7 @@ int lt_boot(const char* title, int window_scale) {
         SDL_WINDOWPOS_CENTERED, lt::SCREEN_W * window_scale,
         lt::SCREEN_H * window_scale,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
-    if (!E.win) {
-        std::fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
-        return 0;
-    }
+    if (!E.win) return bootFail("SDL_CreateWindow");
     // Integer-scale with nearest sampling — the pixel identity lives here.
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
     // LANTERN_NOVSYNC=1 uncaps the frame rate (benchmarks/CI only)
@@ -99,20 +123,26 @@ int lt_boot(const char* title, int window_scale) {
                         ? SDL_RENDERER_ACCELERATED
                         : SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC;
     E.ren = SDL_CreateRenderer(E.win, -1, rflags);
-    if (!E.ren) {
-        std::fprintf(stderr, "SDL_CreateRenderer: %s\n", SDL_GetError());
-        return 0;
-    }
+    if (!E.ren) return bootFail("SDL_CreateRenderer");
     E.frameTex = SDL_CreateTexture(E.ren, SDL_PIXELFORMAT_ABGR8888,
                                    SDL_TEXTUREACCESS_STREAMING, lt::SCREEN_W,
                                    lt::SCREEN_H);
-    if (!E.frameTex) {
-        std::fprintf(stderr, "SDL_CreateTexture: %s\n", SDL_GetError());
-        return 0;
-    }
-    if (!E.gfx.init()) return 0;
+    if (!E.frameTex) return bootFail("SDL_CreateTexture");
+    if (!E.gfx.init()) return bootFail("gfx init");
     E.keys = SDL_GetKeyboardState(nullptr);
     E.prevCounter = SDL_GetPerformanceCounter();
+    // engine-owned frame-verification contract (any host, Lua or C):
+    // LANTERN_SHOT=<prefix> [LANTERN_SHOT_FRAME=N] → save <prefix>.bmp at
+    // frame N (default 60) and request quit.
+    E.shotPath = std::getenv("LANTERN_SHOT");
+    if (const char* sf = std::getenv("LANTERN_SHOT_FRAME"))
+        E.shotFrame = std::atoi(sf);
+    // LANTERN_FIXED_DT=<seconds|1> → deterministic dt and lt_time (CI):
+    // 1 or empty numeric means 1/60.
+    if (const char* fd = std::getenv("LANTERN_FIXED_DT")) {
+        E.fixedDt = std::atof(fd);
+        if (E.fixedDt <= 0 || E.fixedDt >= 1.0) E.fixedDt = 1.0 / 60.0;
+    }
     openFirstPad();
     lt::audioInit(); // failure = silent engine, not a boot failure
     return 1;
@@ -129,6 +159,7 @@ void lt_shutdown(void) {
 }
 
 int lt_frame_poll(void) {
+    if (!E.win) return 0; // not booted (or boot failed): never loop
     // snapshot last frame's state for _pressed edge detection
     for (const auto& [name, bd] : bindings()) {
         (void)bd;
@@ -137,9 +168,9 @@ int lt_frame_poll(void) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_QUIT) E.quit = true;
-        if (e.type == SDL_KEYDOWN &&
+        if (E.escapeQuits && e.type == SDL_KEYDOWN &&
             e.key.keysym.scancode == SDL_SCANCODE_ESCAPE)
-            E.quit = true;
+            E.quit = true; // default dev behavior; lt_escape_quits(0) opts out
         if (e.type == SDL_CONTROLLERDEVICEADDED) openFirstPad();
         if (e.type == SDL_CONTROLLERDEVICEREMOVED && E.pad) {
             SDL_GameControllerClose(E.pad);
@@ -151,6 +182,7 @@ int lt_frame_poll(void) {
     E.dt = (now - E.prevCounter) / (double)SDL_GetPerformanceFrequency();
     E.prevCounter = now;
     if (E.dt > 0.1) E.dt = 0.1;
+    if (E.fixedDt > 0) E.dt = E.fixedDt; // deterministic mode
     return E.quit ? 0 : 1;
 }
 
@@ -159,7 +191,13 @@ double lt_frame_dt(void) { return E.dt; }
 void lt_frame_begin(void) { E.gfx.beginFrame(); }
 
 void lt_frame_end(void) {
+    if (!E.ren) return; // not booted
     E.gfx.endFrame(); // flush the 2D batch into our framebuffer
+    if (E.shotPath && E.frame == E.shotFrame) {
+        E.gfx.screenshot(std::string(E.shotPath) + ".bmp");
+        E.quit = true; // verification run: capture, then exit the loop
+    }
+    E.frame++;
     SDL_UpdateTexture(E.frameTex, nullptr, E.gfx.framebuffer(),
                       lt::SCREEN_W * 4);
     int dw, dh;
@@ -180,6 +218,15 @@ void lt_run(lt_update_fn update, lt_draw_fn draw) {
         if (draw) draw();
         lt_frame_end();
     }
+}
+
+void lt_quit(void) { E.quit = true; }
+
+void lt_escape_quits(int enable) { E.escapeQuits = enable != 0; }
+
+void lt_resources_reset(void) {
+    E.gfx.reset();
+    lt::audioReset();
 }
 
 int lt_screen_w(void) { return lt::SCREEN_W; }
@@ -236,23 +283,14 @@ void lt_draw_mesh_lerp(int mesh_a, int mesh_b, float t, int tex, float x,
                        float y, float z, float rx, float ry, float rz,
                        float sx, float sy, float sz, float r, float g,
                        float b) {
-    lt::Mat4 model = lt::mul(
-        lt::translate(x, y, z),
-        lt::mul(lt::mul(lt::rotateZ(rz),
-                        lt::mul(lt::rotateY(ry), lt::rotateX(rx))),
-                lt::scale(sx, sy, sz)));
-    E.gfx.drawMeshLerp(mesh_a, mesh_b, t, tex, model, r, g, b);
+    E.gfx.drawMeshLerp(mesh_a, mesh_b, t, tex,
+                       trs(x, y, z, rx, ry, rz, sx, sy, sz), r, g, b);
 }
 
 void lt_draw_mesh(int mesh, int tex, float x, float y, float z, float rx,
                   float ry, float rz, float sx, float sy, float sz, float r,
                   float g, float b) {
-    lt::Mat4 model = lt::mul(
-        lt::translate(x, y, z),
-        lt::mul(lt::mul(lt::rotateZ(rz),
-                        lt::mul(lt::rotateY(ry), lt::rotateX(rx))),
-                lt::scale(sx, sy, sz)));
-    E.gfx.drawMesh(mesh, tex, model, r, g, b);
+    E.gfx.drawMesh(mesh, tex, trs(x, y, z, rx, ry, rz, sx, sy, sz), r, g, b);
 }
 
 int lt_texture_load(const char* bmp_path, int* out_w, int* out_h) {
@@ -370,6 +408,9 @@ int lt_save_read(const char* name, void* buf, int buf_len) {
     return got;
 }
 
-double lt_time(void) { return SDL_GetTicks64() / 1000.0; }
+double lt_time(void) {
+    if (E.fixedDt > 0) return E.frame * E.fixedDt; // deterministic mode
+    return SDL_GetTicks64() / 1000.0;
+}
 
 } // extern "C"

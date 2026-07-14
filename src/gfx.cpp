@@ -21,27 +21,52 @@ namespace lt {
 
 const Gfx::Tex* Gfx::texFor(int tex) const {
     if (tex >= 0 && tex < (int)textures_.size()) return &textures_[tex];
-    return &textures_[whiteTex_];
+    // pre-init (whiteTex_ == -1) or invalid handle: nullptr = untextured;
+    // never index textures_ with an unvalidated fallback
+    if (whiteTex_ >= 0 && whiteTex_ < (int)textures_.size())
+        return &textures_[whiteTex_];
+    return nullptr;
+}
+
+// clamp both ends before the uint8_t cast — a float->unsigned conversion of
+// a negative value is UB, and tints/lights arrive unvalidated from games
+static inline uint8_t to8(float v) {
+    if (v < 0.0f) v = 0.0f;
+    if (v > 1.0f) v = 1.0f;
+    return (uint8_t)(v * 255.0f);
+}
+
+// integer texel bounds of a UV sub-rect, so bilinear taps never cross into
+// a neighboring atlas cell (bleed fix); {0,0,1,1} = whole texture
+struct TexClamp { int x0, y0, x1, y1; };
+static TexClamp texClampFor(const Gfx::Tex* t, float u0, float v0, float u1,
+                            float v1) {
+    if (u1 < u0) std::swap(u0, u1);
+    if (v1 < v0) std::swap(v0, v1);
+    TexClamp c;
+    c.x0 = std::max(0, (int)std::floor(u0 * t->w + 1e-4f));
+    c.y0 = std::max(0, (int)std::floor(v0 * t->h + 1e-4f));
+    c.x1 = std::min(t->w - 1, (int)std::ceil(u1 * t->w - 1e-4f) - 1);
+    c.y1 = std::min(t->h - 1, (int)std::ceil(v1 * t->h - 1e-4f) - 1);
+    if (c.x1 < c.x0) c.x1 = c.x0;
+    if (c.y1 < c.y0) c.y1 = c.y0;
+    return c;
 }
 
 // Bilinear by default — the actual 3DS look (ALBW is soft, not pixelated).
 // At exact 1:1 scale bilinear lands on texel centers and is identical to
 // nearest, so UI/font at native size stays crisp.
-static inline void sampleTex(const Gfx::Tex* t, float u, float v, float* out);
+static inline const uint8_t* texelAt(const Gfx::Tex* t, int x, int y,
+                                     const TexClamp& c) {
+    x = x < c.x0 ? c.x0 : (x > c.x1 ? c.x1 : x);
+    y = y < c.y0 ? c.y0 : (y > c.y1 ? c.y1 : y);
+    return &t->px[(size_t)(y * t->w + x) * 4];
+}
 
-struct TexelFetch {
-    static inline const uint8_t* at(const Gfx::Tex* t, int x, int y) {
-        x = x < 0 ? 0 : (x >= t->w ? t->w - 1 : x);
-        y = y < 0 ? 0 : (y >= t->h ? t->h - 1 : y);
-        return &t->px[(size_t)(y * t->w + x) * 4];
-    }
-};
-
-static inline void sampleTex(const Gfx::Tex* t, float u, float v, float* out) {
+static inline void sampleTex(const Gfx::Tex* t, float u, float v,
+                             const TexClamp& c, float* out) {
     if (t->nearest) {
-        int x = (int)(u * t->w);
-        int y = (int)(v * t->h);
-        const uint8_t* p = TexelFetch::at(t, x, y);
+        const uint8_t* p = texelAt(t, (int)(u * t->w), (int)(v * t->h), c);
         out[0] = p[0] / 255.0f; out[1] = p[1] / 255.0f;
         out[2] = p[2] / 255.0f; out[3] = p[3] / 255.0f;
         return;
@@ -49,10 +74,10 @@ static inline void sampleTex(const Gfx::Tex* t, float u, float v, float* out) {
     float fx = u * t->w - 0.5f, fy = v * t->h - 0.5f;
     int x0 = (int)std::floor(fx), y0 = (int)std::floor(fy);
     float ax = fx - x0, ay = fy - y0;
-    const uint8_t* p00 = TexelFetch::at(t, x0, y0);
-    const uint8_t* p10 = TexelFetch::at(t, x0 + 1, y0);
-    const uint8_t* p01 = TexelFetch::at(t, x0, y0 + 1);
-    const uint8_t* p11 = TexelFetch::at(t, x0 + 1, y0 + 1);
+    const uint8_t* p00 = texelAt(t, x0, y0, c);
+    const uint8_t* p10 = texelAt(t, x0 + 1, y0, c);
+    const uint8_t* p01 = texelAt(t, x0, y0 + 1, c);
+    const uint8_t* p11 = texelAt(t, x0 + 1, y0 + 1, c);
     for (int i = 0; i < 4; i++) {
         float top = p00[i] + (p10[i] - p00[i]) * ax;
         float bot = p01[i] + (p11[i] - p01[i]) * ax;
@@ -106,6 +131,7 @@ bool Gfx::init() {
     depth_.assign((size_t)SCREEN_W * SCREEN_H, 1.0f);
     Tex white;
     white.w = white.h = 1;
+    white.nearest = true; // 1x1: bilinear's 4 taps are identical, skip them
     white.px = {255, 255, 255, 255};
     textures_.push_back(std::move(white));
     whiteTex_ = 0;
@@ -134,7 +160,8 @@ void Gfx::clear(float r, float g, float b) {
 void Gfx::setCamera(Vec3 eye, Vec3 target, float fovDeg) {
     view_ = lookAt(eye, target, {0, 1, 0});
     proj_ = perspective(fovDeg, (float)SCREEN_W / SCREEN_H, 0.1f, 200.0f);
-    camEye_ = eye;
+    vp_ = mul(proj_, view_); // cached: constant between camera calls
+    (void)eye;
     camRight_ = {view_.m[0], view_.m[4], view_.m[8]};
     camUp_ = {view_.m[1], view_.m[5], view_.m[9]};
 }
@@ -267,7 +294,8 @@ int Gfx::makeCone(int seg) {
         float a0 = 2 * PI * s / seg, a1 = 2 * PI * (s + 1) / seg;
         Vec3 d0{std::cos(a0), 0, std::sin(a0)}, d1{std::cos(a1), 0, std::sin(a1)};
         Vec3 b0{r * d0.x, -h, r * d0.z}, b1{r * d1.x, -h, r * d1.z};
-        auto sn = [&](Vec3 d) { return norm({d.x, r / h * 0.5f + 0.5f, d.z}); };
+        // slant normal from d/dtheta x d/dy: (cos t, r/(2h), sin t)
+        auto sn = [&](Vec3 d) { return norm({d.x, r / (2 * h), d.z}); };
         vtx(v, b0, sn(d0), (float)s / seg, 1);
         vtx(v, apex, sn(norm({d0.x + d1.x, 0, d0.z + d1.z})),
             (s + 0.5f) / seg, 0);
@@ -312,7 +340,8 @@ static int clipNear(Gfx::PVert* in, int n, Gfx::PVert* out) {
 }
 
 void Gfx::rasterTri(const PVert& A, const PVert& B, const PVert& C,
-                    const Tex* tex, RasterMode mode) {
+                    const Tex* tex, const TexClamp& uvClamp,
+                    RasterMode mode) {
     // to screen space; keep 1/w for perspective-correct interpolation
     struct SV { float x, y, z, iw, u, v, r, g, b, a, fog; };
     auto toScreen = [](const PVert& p, SV& s) {
@@ -330,7 +359,17 @@ void Gfx::rasterTri(const PVert& A, const PVert& B, const PVert& C,
 
     float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
     if (std::fabs(area) < 1e-6f) return;  // degenerate
+    if (area < 0) { std::swap(b, c); area = -area; } // canonical winding
     float invArea = 1.0f / area;
+    // Boundary ownership: a pixel exactly on an edge belongs to exactly ONE
+    // of two triangles sharing it (else translucent quads double-blend a
+    // seam down their diagonal). Include the boundary only for edges going
+    // +y, or exactly horizontal going -x.
+    auto owns = [](const SV& p, const SV& q) {
+        float dy = q.y - p.y;
+        return dy > 0 || (dy == 0 && q.x - p.x < 0);
+    };
+    const bool own0 = owns(b, c), own1 = owns(c, a), own2 = owns(a, b);
 
     int x0 = std::max(0, (int)std::floor(std::min({a.x, b.x, c.x})));
     int x1 = std::min(SCREEN_W - 1, (int)std::ceil(std::max({a.x, b.x, c.x})));
@@ -351,10 +390,10 @@ void Gfx::rasterTri(const PVert& A, const PVert& B, const PVert& C,
             float w0 = edge(b, c, px, py);
             float w1 = edge(c, a, px, py);
             float w2 = edge(a, b, px, py);
-            // two-sided: accept either winding
-            bool inPos = (w0 >= 0 && w1 >= 0 && w2 >= 0);
-            bool inNeg = (w0 <= 0 && w1 <= 0 && w2 <= 0);
-            if (!inPos && !inNeg) continue;
+            if ((w0 < 0 || (w0 == 0 && !own0)) ||
+                (w1 < 0 || (w1 == 0 && !own1)) ||
+                (w2 < 0 || (w2 == 0 && !own2)))
+                continue;
             float b0 = w0 * invArea, b1 = w1 * invArea, b2 = w2 * invArea;
 
             float z = b0 * a.z + b1 * b.z + b2 * c.z;
@@ -373,7 +412,7 @@ void Gfx::rasterTri(const PVert& A, const PVert& B, const PVert& C,
             float fog = (b0 * a.fog + b1 * b.fog + b2 * c.fog) * wr;
 
             float t[4] = {1, 1, 1, 1};
-            if (tex) sampleTex(tex, u, v, t);
+            if (tex) sampleTex(tex, u, v, uvClamp, t);
             float R = t[0] * cr, G = t[1] * cg, B = t[2] * cb;
             float Aa = t[3] * ca;
 
@@ -382,20 +421,17 @@ void Gfx::rasterTri(const PVert& A, const PVert& B, const PVert& C,
                 R = R + (fogColor_.x - R) * fog;
                 G = G + (fogColor_.y - G) * fog;
                 B = B + (fogColor_.z - B) * fog;
-                row[0] = (uint8_t)(std::min(R, 1.0f) * 255);
-                row[1] = (uint8_t)(std::min(G, 1.0f) * 255);
-                row[2] = (uint8_t)(std::min(B, 1.0f) * 255);
+                row[0] = to8(R);
+                row[1] = to8(G);
+                row[2] = to8(B);
                 row[3] = 255;
                 *drow = zd;                          // depth write
             } else {                                 // M_DECAL: blend, no zwrite
                 if (Aa <= 0.004f) continue;
                 if (Aa > 1) Aa = 1;
-                row[0] = (uint8_t)(std::min(R, 1.0f) * 255 * Aa +
-                                   row[0] * (1 - Aa));
-                row[1] = (uint8_t)(std::min(G, 1.0f) * 255 * Aa +
-                                   row[1] * (1 - Aa));
-                row[2] = (uint8_t)(std::min(B, 1.0f) * 255 * Aa +
-                                   row[2] * (1 - Aa));
+                row[0] = (uint8_t)(to8(R) * Aa + row[0] * (1 - Aa));
+                row[1] = (uint8_t)(to8(G) * Aa + row[1] * (1 - Aa));
+                row[2] = (uint8_t)(to8(B) * Aa + row[2] * (1 - Aa));
             }
         }
     }
@@ -405,10 +441,16 @@ void Gfx::rasterTri(const PVert& A, const PVert& B, const PVert& C,
 // between two keyframes (drawMeshLerp); verts2 == nullptr means no tween.
 void Gfx::emitTriangles(const float* verts, int vertCount, const float* verts2,
                         float lerpT, int tex, const Mat4& model, float r,
-                        float g, float b, bool unlit, RasterMode mode) {
-    Mat4 vp = mul(proj_, view_);
-    Mat4 mvp = mul(vp, model);
+                        float g, float b, bool unlit, RasterMode mode,
+                        const float* uvRect) {
+    Mat4 mvp = mul(vp_, model);
     const Tex* T = tex >= 0 ? texFor(tex) : nullptr;
+    TexClamp tc{0, 0, 0, 0};
+    if (T)
+        tc = uvRect ? texClampFor(T, uvRect[0], uvRect[1], uvRect[2], uvRect[3])
+                    : texClampFor(T, 0, 0, 1, 1);
+    // constant for the whole draw call — never renormalize per vertex
+    const Vec3 L = norm({-lightDir_.x, -lightDir_.y, -lightDir_.z});
     bool fogOn = fogEnd_ > fogStart_;
 
     PVert tri[3];
@@ -443,7 +485,6 @@ void Gfx::emitTriangles(const float* verts, int vertCount, const float* verts2,
                 float nz = model.m[2] * nrm[0] + model.m[6] * nrm[1] + model.m[10] * nrm[2];
                 float nl = std::sqrt(nx * nx + ny * ny + nz * nz);
                 if (nl > 1e-6f) { nx /= nl; ny /= nl; nz /= nl; }
-                Vec3 L = norm({-lightDir_.x, -lightDir_.y, -lightDir_.z});
                 float d = std::max(nx * L.x + ny * L.y + nz * L.z, 0.0f);
                 lr = lg = lb = ambient_ + d;
                 for (int li = 0; li < MAX_POINT_LIGHTS; li++) {
@@ -481,7 +522,7 @@ void Gfx::emitTriangles(const float* verts, int vertCount, const float* verts2,
         PVert clipped[8];
         int n = clipNear(tri, 3, clipped);
         for (int k = 1; k + 1 < n; k++)
-            rasterTri(clipped[0], clipped[k], clipped[k + 1], T, mode);
+            rasterTri(clipped[0], clipped[k], clipped[k + 1], T, tc, mode);
     }
 }
 
@@ -490,7 +531,7 @@ void Gfx::drawMesh(int mesh, int tex, const Mat4& model, float r, float g,
     if (mesh < 0 || mesh >= (int)meshes_.size()) return;
     const Mesh& m = meshes_[mesh];
     emitTriangles(m.v.data(), (int)m.v.size() / VERT_FLOATS, nullptr, 0, tex,
-                  model, r, g, b, false, M_OPAQUE);
+                  model, r, g, b, false, M_OPAQUE, nullptr);
 }
 
 void Gfx::drawMeshLerp(int meshA, int meshB, float t, int tex,
@@ -511,7 +552,7 @@ void Gfx::drawMeshLerp(int meshA, int meshB, float t, int tex,
     if (t < 0) t = 0;
     if (t > 1) t = 1;
     emitTriangles(a.v.data(), (int)a.v.size() / VERT_FLOATS, b2.v.data(), t,
-                  tex, model, r, g, b, false, M_OPAQUE);
+                  tex, model, r, g, b, false, M_OPAQUE, nullptr);
 }
 
 void Gfx::billboard(int tex, Vec3 pos, float w, float h, float u0, float v0,
@@ -536,7 +577,9 @@ void Gfx::billboard(int tex, Vec3 pos, float w, float h, float u0, float v0,
         o[6] = UV[i][0]; o[7] = UV[i][1];
         o[8] = o[9] = o[10] = o[11] = 1;
     }
-    emitTriangles(qv, 6, nullptr, 0, tex, model, 1, 1, 1, true, M_OPAQUE);
+    const float uvRect[4] = {u0, v0, u1, v1}; // atlas cell: clamp taps to it
+    emitTriangles(qv, 6, nullptr, 0, tex, model, 1, 1, 1, true, M_OPAQUE,
+                  uvRect);
 }
 
 void Gfx::shadowBlob(Vec3 pos, float radius, float alpha) {
@@ -556,7 +599,7 @@ void Gfx::shadowBlob(Vec3 pos, float radius, float alpha) {
     Mat4 model = mul(translate(pos.x, pos.y, pos.z),
                      scale(radius * 2, 1, radius * 2));
     emitTriangles(qv, 6, nullptr, 0, shadowTex_, model, 1, 1, 1, true,
-                  M_DECAL);
+                  M_DECAL, nullptr);
 }
 
 // -------------------------------------------------------------------- 2D
@@ -709,7 +752,7 @@ void Gfx::print(const char* text, float x, float y, float r, float g, float b,
 
 // affine 2D triangle with alpha blending (no depth) — HUD compositing
 void Gfx::raster2DTri(const float* v0, const float* v1, const float* v2,
-                      const Tex* tex) {
+                      const Tex* tex, const TexClamp& uvClamp) {
     float minx = std::min({v0[0], v1[0], v2[0]});
     float maxx = std::max({v0[0], v1[0], v2[0]});
     float miny = std::min({v0[1], v1[1], v2[1]});
@@ -723,7 +766,14 @@ void Gfx::raster2DTri(const float* v0, const float* v1, const float* v2,
     float area = (v1[0] - v0[0]) * (v2[1] - v0[1]) -
                  (v1[1] - v0[1]) * (v2[0] - v0[0]);
     if (std::fabs(area) < 1e-6f) return;
+    if (area < 0) { std::swap(v1, v2); area = -area; } // canonical winding
     float invArea = 1.0f / area;
+    // same boundary-ownership rule as rasterTri: shared edges shade once
+    auto owns = [](const float* p, const float* q) {
+        float dy = q[1] - p[1];
+        return dy > 0 || (dy == 0 && q[0] - p[0] < 0);
+    };
+    const bool own0 = owns(v1, v2), own1 = owns(v2, v0), own2 = owns(v0, v1);
 
     for (int y = y0; y <= y1; y++) {
         float py = y + 0.5f;
@@ -736,23 +786,24 @@ void Gfx::raster2DTri(const float* v0, const float* v1, const float* v2,
                        (v0[1] - v2[1]) * (px - v2[0]);
             float w2 = (v1[0] - v0[0]) * (py - v0[1]) -
                        (v1[1] - v0[1]) * (px - v0[0]);
-            bool inPos = (w0 >= 0 && w1 >= 0 && w2 >= 0);
-            bool inNeg = (w0 <= 0 && w1 <= 0 && w2 <= 0);
-            if (!inPos && !inNeg) continue;
+            if ((w0 < 0 || (w0 == 0 && !own0)) ||
+                (w1 < 0 || (w1 == 0 && !own1)) ||
+                (w2 < 0 || (w2 == 0 && !own2)))
+                continue;
             float b0 = w0 * invArea, b1 = w1 * invArea, b2 = w2 * invArea;
             float u = b0 * v0[2] + b1 * v1[2] + b2 * v2[2];
             float v = b0 * v0[3] + b1 * v1[3] + b2 * v2[3];
             float t[4] = {1, 1, 1, 1};
-            if (tex) sampleTex(tex, u, v, t);
+            if (tex) sampleTex(tex, u, v, uvClamp, t);
             float R = t[0] * (b0 * v0[4] + b1 * v1[4] + b2 * v2[4]);
             float G = t[1] * (b0 * v0[5] + b1 * v1[5] + b2 * v2[5]);
             float B = t[2] * (b0 * v0[6] + b1 * v1[6] + b2 * v2[6]);
             float Aa = t[3] * (b0 * v0[7] + b1 * v1[7] + b2 * v2[7]);
             if (Aa <= 0.004f) continue;
             if (Aa > 1) Aa = 1;
-            row[0] = (uint8_t)(std::min(R, 1.0f) * 255 * Aa + row[0] * (1 - Aa));
-            row[1] = (uint8_t)(std::min(G, 1.0f) * 255 * Aa + row[1] * (1 - Aa));
-            row[2] = (uint8_t)(std::min(B, 1.0f) * 255 * Aa + row[2] * (1 - Aa));
+            row[0] = (uint8_t)(to8(R) * Aa + row[0] * (1 - Aa));
+            row[1] = (uint8_t)(to8(G) * Aa + row[1] * (1 - Aa));
+            row[2] = (uint8_t)(to8(B) * Aa + row[2] * (1 - Aa));
         }
     }
 }
@@ -760,13 +811,24 @@ void Gfx::raster2DTri(const float* v0, const float* v1, const float* v2,
 void Gfx::flush2D() {
     for (const Quad2D& q : quads_) {
         const Tex* t = texFor(q.tex);
-        raster2DTri(q.v[0], q.v[1], q.v[2], t);
-        raster2DTri(q.v[3], q.v[4], q.v[5], t);
+        TexClamp tc{0, 0, 0, 0};
+        if (t) // corners 0 and 2 carry the quad's full UV extent
+            tc = texClampFor(t, q.v[0][2], q.v[0][3], q.v[2][2], q.v[2][3]);
+        raster2DTri(q.v[0], q.v[1], q.v[2], t, tc);
+        raster2DTri(q.v[3], q.v[4], q.v[5], t, tc);
     }
     quads_.clear();
 }
 
 void Gfx::endFrame() { flush2D(); }
+
+void Gfx::reset() {
+    meshes_.clear();
+    quads_.clear();
+    // keep the built-ins created by init(): white(0), font(1), shadow(2)
+    if ((int)textures_.size() > shadowTex_ + 1)
+        textures_.erase(textures_.begin() + shadowTex_ + 1, textures_.end());
+}
 
 void Gfx::screenshot(const std::string& bmpPath) {
     SDL_Surface* s = SDL_CreateRGBSurfaceWithFormatFrom(
