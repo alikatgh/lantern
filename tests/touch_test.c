@@ -57,10 +57,15 @@ int main(void) {
         return 1;
     }
 
-    /* the display may have shrunk our window: measure what we really got */
+    /* the display may have shrunk our window: measure what we really got.
+     * Window IDs are not guaranteed to start at 1 (sdl2-compat/SDL3), so
+     * scan for the engine's window. */
     int ww = 1200, wh = 720;
-    SDL_Window* win = SDL_GetWindowFromID(1); /* first (only) SDL window */
+    SDL_Window* win = NULL;
+    for (Uint32 id = 1; id <= 64 && !win; id++) win = SDL_GetWindowFromID(id);
     if (win) SDL_GetWindowSize(win, &ww, &wh);
+    fprintf(stderr, "touch_test: window %s, size %dx%d\n",
+            win ? "found" : "NOT FOUND (using requested size)", ww, wh);
     const int cx = ww / 2, cy = wh / 2;
 
     /* nothing touched yet */
