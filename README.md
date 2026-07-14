@@ -34,7 +34,7 @@ that combination is what lets the engine screenshot-test itself in CI.
 - **Runs on iPhone/iPad**: the platform layer has a native iOS backend —
   Metal-presented (the rasterizer stays ours), UITouch, AVAudio, and
   GCController gamepads. `tools/build_ios_sim.sh [game_dir]` builds a
-  simulator app with a **wick game bundled** (Kora Night by default —
+  simulator app with a **wick game bundled** (Lantern Night by default —
   wick has no JIT, so it's iOS-legal by construction); frames render
   byte-identical to macOS.
 - Headroom to spare: ~10k lit mesh draw calls fit the 60 fps budget
@@ -52,13 +52,13 @@ that combination is what lets the engine screenshot-test itself in CI.
 brew install sdl2 lua cmake pkg-config   # macOS; Linux: same packages
 cmake -B build && cmake --build build -j8
 ./build/lantern games/room               # THE SHOP — ALBW-style interior
-./build/lantern games/showcase           # KORA NIGHT — a complete mini-game
+./build/lantern games/showcase           # LANTERN NIGHT — a complete mini-game
 ./build/lantern games/demo               # monastery-at-dusk feature demo
 ./build/lantern games/template           # minimal starter
 ./build/lantern_hello_c                  # the same engine from pure C
 ```
 
-**Kora Night** (`games/showcase/`, ~200 lines of Lua) is the proof the API
+**Lantern Night** (`games/showcase/`, ~200 lines of Lua) is the proof the API
 holds together as a game: the four point lights are the mechanic (keep the
 butter lamps lit through a windy night), the player is a billboard, fog is
 the night, audio/rumble are feedback, and the hi-score persists. Title →
@@ -106,11 +106,11 @@ fn draw() {
 
 Full language reference: [docs/WICK.md](docs/WICK.md). Try it:
 `./build/lantern games/wicklab`, or play the real thing:
-`./build/lantern games/showcase_wick` — **Kora Night ported to wick**,
+`./build/lantern games/showcase_wick` — **Lantern Night ported to wick**,
 kept as a separate project beside the Lua build (`games/showcase`) on
 purpose: the two evolve together so the languages stay comparable on the
 same game. Test suite: `tests/wick_test.sh` (runs in CI — including eight
-programs that MUST fail to compile, plus the wick Kora Night self-play).
+programs that MUST fail to compile, plus the wick Lantern Night self-play).
 
 ## Make a game (Lua)
 

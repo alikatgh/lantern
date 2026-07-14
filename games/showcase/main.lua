@@ -1,4 +1,4 @@
--- KORA NIGHT — the lantern showcase game.
+-- LANTERN NIGHT — the lantern showcase game.
 -- Keep the stupa's four butter lamps lit through a windy night. Wind blows
 -- them out; walk to a dark lamp and press Z to relight it. Score a point per
 -- relight; 60 seconds; hi-score persists.
@@ -33,7 +33,7 @@ local state, t = "title", 0          -- title | play | over
 local px, pz = 0, 5.2                -- player
 local score, timer = 0, ROUND
 local wind_in = 3.0                  -- seconds until next gust
-local best = tonumber(lt.load_save("koranight_best") or "") or 0
+local best = tonumber(lt.load_save("lanternnight_best") or "") or 0
 
 local function reset_lamps()
   for _, l in ipairs(LAMPS) do l.lit = true end
@@ -85,7 +85,7 @@ function update(dt)
     state = "over"
     if score > best then
       best = score
-      lt.save("koranight_best", tostring(best))
+      lt.save("lanternnight_best", tostring(best))
     end
     return
   end
@@ -170,7 +170,7 @@ function draw()
 
   if state == "title" then
     lt.rect(0, 78, lt.W, 46, 0.03, 0.03, 0.06, 0.75)
-    lt.print("KORA NIGHT", lt.W / 2 - 40, 88, 0.98, 0.80, 0.25, 1)
+    lt.print("LANTERN NIGHT", lt.W / 2 - 52, 88, 0.98, 0.80, 0.25, 1)
     lt.print("KEEP THE BUTTER LAMPS LIT", lt.W / 2 - 100, 102, 1, 1, 1, 0.9)
     if math.floor(t * 2) % 2 == 0 then
       lt.print("PRESS Z", lt.W / 2 - 28, 112, 1, 1, 1, 0.8)

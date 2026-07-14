@@ -1,4 +1,4 @@
-// KORA NIGHT — the wick build. A deliberate 1:1 port of games/showcase
+// LANTERN NIGHT — the wick build. A deliberate 1:1 port of games/showcase
 // (the Lua build): both projects live side by side and evolve together so
 // the two languages stay comparable on the same real game.
 //
@@ -45,7 +45,7 @@ let wind_in = 3.0
 // the line below is the whole reason wick exists: an interrupted save
 // leaves a 0-byte file, load_save returns "", and the compiler FORCES
 // both fallbacks (the Lua build crashed on frame 1 until it was fixed)
-let best = num(lt.load_save("koranight_wick_best") ?? "") ?? 0
+let best = num(lt.load_save("lanternnight_wick_best") ?? "") ?? 0
 
 fn reset_lamps() {
   for i in 0..4 { lamp_lit[i] = true }
@@ -130,7 +130,7 @@ fn update(dt: num) {
     state = "over"
     if score > best {
       best = score
-      lt.save("koranight_wick_best", str(best))
+      lt.save("lanternnight_wick_best", str(best))
     }
     return
   }
@@ -221,7 +221,7 @@ fn draw() {
 
   if state == "title" {
     lt.rect(0, 78, lt.W, 46, 0.03, 0.03, 0.06, 0.75)
-    lt.print("KORA NIGHT (WICK)", lt.W / 2 - 68, 88, 0.98, 0.80, 0.25, 1)
+    lt.print("LANTERN NIGHT (WICK)", lt.W / 2 - 80, 88, 0.98, 0.80, 0.25, 1)
     lt.print("KEEP THE BUTTER LAMPS LIT", lt.W / 2 - 100, 102, 1, 1, 1, 0.9)
     if floor(t * 2) % 2 == 0 {
       lt.print("PRESS Z", lt.W / 2 - 28, 112, 1, 1, 1, 0.8)

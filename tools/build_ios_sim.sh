@@ -8,7 +8,7 @@
 #
 # Usage: tools/build_ios_sim.sh [game_dir]     (from the repo root)
 #   game_dir: a wick game folder to bundle (default games/showcase_wick —
-#   Kora Night). Pass "none" to bundle no game: the app then runs the
+#   Lantern Night). Pass "none" to bundle no game: the app then runs the
 #   compiled-in C touchdemo.
 # Output: build-ios/Lantern.app
 set -euo pipefail

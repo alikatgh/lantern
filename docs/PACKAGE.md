@@ -31,8 +31,8 @@ safe to use, and it cannot be offered for Lua games (Lua ships `os` and
 The manifest, plain `key=value` lines, first entry in every package:
 
 ```
-id=com.aulenor.kora-night     # reverse-DNS, unique in the store
-title=Kora Night
+id=com.aulenor.lantern-night  # reverse-DNS, unique in the store
+title=Lantern Night
 version=1.0.0                 # semver
 author=the lantern engine authors
 entry=main.wick               # always main.wick for store packages

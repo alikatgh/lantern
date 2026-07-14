@@ -151,7 +151,7 @@ rendered frames, never by "it compiled".**
   room-builder mirroring `kora/godot/world.gd`, dialogue, then the 3D
   diorama layer (ALBW framing: top-down camera, low-poly architecture,
   billboard characters — the engine already has every piece this needs).
-- **v0.5-pre ✅ (2026-07-14) — showcase game**: `games/showcase/` (KORA
+- **v0.5-pre ✅ (2026-07-14) — showcase game**: `games/showcase/` (LANTERN
   NIGHT) — a complete title→play→results mini-game in ~200 lines where the
   4 point lights are the core mechanic; verified by a deterministic
   self-playing round (`SHOWCASE_AUTO=1`) captured at all three states, with

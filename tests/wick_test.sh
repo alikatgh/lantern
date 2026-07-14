@@ -127,7 +127,7 @@ expect_error "undeclared variable" "unknown variable" \
 expect_error "nil needs annotation" "annotate" \
 'let x = nil'
 
-# ---------- 3. the real game: wick Kora Night self-plays ----------
+# ---------- 3. the real game: wick Lantern Night self-plays ----------
 # anchor to the repo, not the CWD — ctest runs from build/
 ENGINE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 if SHOWCASE_AUTO=1 LANTERN_FIXED_DT=1 LANTERN_SHOT="$TMP/kn" \

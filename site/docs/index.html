@@ -67,7 +67,7 @@ git clone https://github.com/alikatgh/lantern &amp;&amp; cd lantern
 brew install sdl2 lua cmake pkg-config
 cmake -B build &amp;&amp; cmake --build build -j8
 
-./build/lantern games/showcase   <span class="c"># KORA NIGHT — complete mini-game</span>
+./build/lantern games/showcase   <span class="c"># LANTERN NIGHT — complete mini-game</span>
 ./build/lantern games/demo       <span class="c"># every feature in one scene</span>
 ./build/lantern games/template   <span class="c"># the copy-me starter</span></code></pre>
 <p>Or grab the prebuilt bundle from the
@@ -162,7 +162,7 @@ designed out at the language level:</p>
 <p>The compiler and VM are ~2k dependency-free lines in
 <code>wick/</code>, same zlib license. Full language reference:
 <a href="https://github.com/alikatgh/lantern/blob/main/docs/WICK.md">docs/WICK.md</a>.
-Kora Night exists in <i>both</i> languages — <code>games/showcase</code>
+Lantern Night exists in <i>both</i> languages — <code>games/showcase</code>
 (Lua) and <code>games/showcase_wick</code> — deliberately kept as separate
 side-by-side projects so you can compare them line for line. The Lua API
 below maps 1:1 to wick (<code>lt.draw(...)</code> is the same call in
@@ -328,9 +328,9 @@ binary actually renders a frame.</p>
 <h2 id="samples">Sample games</h2>
 <table class="api">
   <tr><th>Folder</th><th>What it shows</th></tr>
-  <tr><td>games/showcase_wick</td><td>KORA NIGHT in <b>wick</b> — the same game as games/showcase, in lantern's own language; the pair evolves together for comparison.</td></tr>
+  <tr><td>games/showcase_wick</td><td>LANTERN NIGHT in <b>wick</b> — the same game as games/showcase, in lantern's own language; the pair evolves together for comparison.</td></tr>
   <tr><td>games/wicklab</td><td>The first wick program: typed lists, optionals, user functions, deterministic starfield.</td></tr>
-  <tr><td>games/showcase</td><td>KORA NIGHT — a complete arcade game (title → play → results) where the four point lights are the mechanic. Audio, rumble, saves, ~200 lines.</td></tr>
+  <tr><td>games/showcase</td><td>LANTERN NIGHT — a complete arcade game (title → play → results) where the four point lights are the mechanic. Audio, rumble, saves, ~200 lines.</td></tr>
   <tr><td>games/room</td><td>THE SHOP — the ALBW-style interior: textured floor/walls/carpet, keyframe-animated hero (<code>lt.draw_lerp</code>), blob shadows, warm point lights, hearts HUD.</td></tr>
   <tr><td>games/demo</td><td>Every feature in one monastery-at-dusk scene: fog, point lights, OBJ, billboards, textured custom meshes, HUD.</td></tr>
   <tr><td>games/template</td><td>The commented starter you copy to begin a game.</td></tr>

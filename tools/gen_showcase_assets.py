@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate games/showcase (Kora Night) assets — reuses gen_demo_assets art.
+"""Generate games/showcase (Lantern Night) assets — reuses gen_demo_assets art.
 
 monk.bmp / mountains.obj / bell.wav — shared with the demo (same art).
 whoosh.wav — wind gust for a lamp blowing out (filtered noise burst).
@@ -14,7 +14,7 @@ import struct
 from gen_demo_assets import write_bmp, write_bell, write_mountains, monk_px
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# the Lua and wick builds of Kora Night are deliberately separate projects
+# the Lua and wick builds of Lantern Night are deliberately separate projects
 # (they evolve side by side for language comparison) but share these assets
 OUTS = [os.path.normpath(os.path.join(HERE, "..", "games", d))
         for d in ("showcase", "showcase_wick")]

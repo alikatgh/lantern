@@ -4,7 +4,7 @@
 // which is exactly what the manual-loop half of the ABI is for.
 //
 // Two kinds of game can ship in the bundle:
-//  - a wick game: a `game/` folder with main.wick (Kora Night by default —
+//  - a wick game: a `game/` folder with main.wick (Lantern Night by default —
 //    the wick VM has zero dependencies and no JIT, so it is iOS-legal)
 //  - a C game compiled in (games/touchdemo, the fallback when no game/
 //    folder is bundled)
