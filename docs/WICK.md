@@ -5,6 +5,16 @@ C++ we fully own: lexer → one-pass typed compiler → bytecode → stack VM.
 Open source with the engine. Lua remains available; wick is the native
 tongue.*
 
+## The governing principle
+
+**wick contains only what we truly need — nothing for the sake of having
+it.** A feature enters the language only when real game code demonstrably
+hurt without it; the side-by-side Kora Night builds (`games/showcase` vs
+`games/showcase_wick`) are the standing evidence mechanism. Optionals are
+in because a shipped save-file crash demanded them. Closures, structs,
+modules are not "scheduled" — they are candidates that have not yet earned
+admission. Feature-parity with other languages is explicitly not a reason.
+
 ## Why (each Lua disadvantage, fixed by design)
 
 | Lua pain | wick answer |
