@@ -125,6 +125,11 @@ void   lt_sprite_ex(int tex, float x, float y, float sx, float sy,
 /* Atlas/tilemap workhorse: draw a sub-rect (UVs 0..1) into x,y,w,h.       */
 void   lt_sprite_uv(int tex, float x, float y, float w, float h,
                     float u0, float v0, float u1, float v1);
+/* As lt_sprite_uv, but multiplies each texel by (r,g,b) — a per-sprite    */
+/* modulate/tint (e.g. season tinting a tile). Texel alpha still keys.     */
+void   lt_sprite_uv_tinted(int tex, float x, float y, float w, float h,
+                           float u0, float v0, float u1, float v1,
+                           float r, float g, float b);
 /* Built-in 8x8 debug font (uppercase; lowercase is upcased). 8px advance. */
 void   lt_print(const char* text, float x, float y,
                 float r, float g, float b, float a);
@@ -134,6 +139,8 @@ int    lt_sound_load(const char* wav_path);
 /* loop 0/1; returns a channel handle, or -1 if none free.                 */
 int    lt_sound_play(int sound, float volume, int loop);
 void   lt_sound_stop(int channel);
+/* Live per-channel volume (0..1) — music crossfades between looping beds. */
+void   lt_channel_volume(int channel, float volume);
 void   lt_master_volume(float volume);
 
 /* ---- input ------------------------------------------------------------ */

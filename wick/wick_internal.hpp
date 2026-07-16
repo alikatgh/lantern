@@ -8,15 +8,33 @@ namespace wick {
 
 // ---- static types --------------------------------------------------------
 struct Type {
-    enum K : uint8_t { NUM, BOOL, STR, LIST, MAP, VOID, NILT } k = VOID;
+    enum K : uint8_t { NUM, BOOL, STR, LIST, MAP, VOID, NILT, RECORD } k = VOID;
     bool opt = false;              // T?
-    K elem = NUM;                  // element type for LIST/MAP
+    K elem = NUM;                  // element type for LIST/MAP of primitives
+    int recId = -1;                // RECORD id, or list/map of RECORD
     bool sameBase(const Type& o) const {
         if (k != o.k) return false;
-        if (k == LIST || k == MAP) return elem == o.elem;
+        if (k == RECORD) return recId == o.recId;
+        if (k == LIST || k == MAP) {
+            if (elem != o.elem) return false;
+            if (elem == RECORD) return recId == o.recId;
+            return true;
+        }
         return true;
     }
     std::string name() const;
+};
+
+// A flat record type: named fields of num/bool/str only (no nesting in v0.1).
+struct RecordDef {
+    std::string name;
+    std::vector<std::string> fields;
+    std::vector<Type> fieldTypes; // each is num|bool|str, non-optional
+    int fieldIndex(const std::string& f) const {
+        for (int i = 0; i < (int)fields.size(); i++)
+            if (fields[(size_t)i] == f) return i;
+        return -1;
+    }
 };
 
 // ---- bytecode -------------------------------------------------------------
@@ -44,6 +62,11 @@ enum Op : uint8_t {
     OP_MGET, OP_MSET,              // map[k]  get (-> V or nil) / set
     OP_LEN, OP_TOSTR, OP_TONUM,    // generic builtins
     OP_LPUSH, OP_LPOP,             // push(list, v) / pop(list) -> V or nil
+    OP_REC,                        // u16 recId: build record from top N fields
+                                   // (N = records[recId].fields.size()), order
+                                   // matches declaration
+    OP_FGET,                       // u8 fieldIdx: rec.field
+    OP_FSET,                       // u8 fieldIdx: rec.field = val (pops rec,val)
     OP_HALT,
 };
 
@@ -68,12 +91,15 @@ struct Native {
 
 // ---- heap objects ---------------------------------------------------------
 struct Obj {
-    enum K : uint8_t { STR, LIST, MAP } k = STR;
+    enum K : uint8_t { STR, LIST, MAP, REC } k = STR;
     bool mark = false;
     Obj* next = nullptr;
     std::string s;
     std::vector<Value> list;
     std::unordered_map<std::string, Value> map;
+    // REC: fields in declaration order; recId indexes VM::records
+    int recId = -1;
+    std::vector<Value> fields;
 };
 
 // ---- the VM ---------------------------------------------------------------
@@ -85,6 +111,8 @@ struct VM {
     std::vector<Value> globals;
     std::vector<Type> gtypes;
     std::unordered_map<std::string, int> gByName;
+    std::vector<RecordDef> records;
+    std::unordered_map<std::string, int> recByName;
     // environment (survives reset)
     std::vector<Native> natives;
     std::unordered_map<std::string, int> natByName;

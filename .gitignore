@@ -2,6 +2,7 @@
 build/
 build-dist/
 build-ios/
+build-asan/
 
 # Packaged releases (published via GitHub Releases, not tracked)
 dist/

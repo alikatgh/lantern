@@ -5,6 +5,12 @@ before reproducing anything.
 
 ## Patterns to scan for FIRST
 
+- **Game-relative loads must refuse `..` and absolute paths.** Joining
+  `gameDir + "/" + userPath` is not a sandbox — path traversal leaves the
+  package. Use a shared resolve-under-root helper; test with a wick fixture
+  that must fail (`tests/path_sandbox_test.sh`).
+- **`.lant` names may be nested (`assets/x.bmp`) but never `..`.** Pack
+  recursively; extract creates parent dirs. Flat games still pack flat.
 - **Level-sampled input misses sub-frame events.** Any input read as "is it
   down NOW" loses presses shorter than one frame (fast clicks, synthetic
   taps). Latch a sequence counter at the event source; edge-detect on the
@@ -23,6 +29,17 @@ before reproducing anything.
   every deferred/batched stage (sprite batch, blit) has flushed, not before.
 
 ## Chronological log (newest first — 5 lines max each)
+
+### 2026-07-14 — store path/pack sandbox + wick records
+- Symptom: design critique — loads joined paths naively; packages flat-only
+  so KORA `assets/` could not ship; parallel prop lists painful.
+- Cause: no resolve-under-root; pack tool only read one directory level;
+  language had no records.
+- Fix: `path_sandbox.cpp`; recursive nested `.lant` names; `record` +
+  OP_REC/FGET/FSET; kitchen props → `list<Prop>`; package-mode screenshot
+  confined to extract dir.
+- Lesson: security story must match natives; pack layout must match game
+  paths; admit records only when a real table hurts (kitchen props).
 
 ### 2026-07-14 — touch test red on CI only (tests/touch_test.c)
 - Symptom: center-tap asserted 200 but got 244 — only on the GitHub runner.

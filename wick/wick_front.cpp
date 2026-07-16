@@ -10,10 +10,15 @@
 namespace wick {
 
 std::string Type::name() const {
-    const char* base[] = {"num", "bool", "str", "list", "map", "void", "nil"};
+    const char* base[] = {"num", "bool", "str", "list", "map", "void", "nil",
+                          "record"};
     std::string n = base[k];
-    if (k == LIST || k == MAP)
-        n += std::string("<") + base[elem] + ">";
+    if (k == LIST || k == MAP) {
+        if (elem == RECORD)
+            n += "<record>";
+        else
+            n += std::string("<") + base[elem] + ">";
+    }
     if (opt) n += "?";
     return n;
 }
@@ -24,6 +29,7 @@ enum TokKind {
     T_EOF, T_NUM, T_STR, T_IDENT,
     T_LET, T_FN, T_IF, T_ELIF, T_ELSE, T_WHILE, T_FOR, T_IN, T_BREAK,
     T_CONT, T_RETURN, T_TRUE, T_FALSE, T_NIL, T_AND, T_OR, T_NOT,
+    T_RECORD,
     T_LP, T_RP, T_LB, T_RB, T_LBRACE, T_RBRACE,
     T_COMMA, T_COLON, T_DOT, T_DOTDOT, T_QQ, T_QMARK,
     T_ASSIGN, T_EQ, T_NE, T_LT, T_LE, T_GT, T_GE,
@@ -124,6 +130,7 @@ struct Compiler {
             t.text = src.substr(s, pos - s);
             static const struct { const char* w; TokKind k; } kw[] = {
                 {"let", T_LET}, {"fn", T_FN}, {"if", T_IF}, {"elif", T_ELIF},
+                {"record", T_RECORD},
                 {"else", T_ELSE}, {"while", T_WHILE}, {"for", T_FOR},
                 {"in", T_IN}, {"break", T_BREAK}, {"continue", T_CONT},
                 {"return", T_RETURN}, {"true", T_TRUE}, {"false", T_FALSE},
@@ -278,6 +285,7 @@ struct Compiler {
 
     // ---- types ----
     bool parseType(Type& out) {
+        out = Type{};
         if (cur.kind != T_IDENT) return fail("expected type name");
         std::string n = cur.text;
         advance();
@@ -290,12 +298,28 @@ struct Compiler {
             Type e;
             if (!parseType(e)) return false;
             if (e.opt || e.k == Type::LIST || e.k == Type::MAP)
-                return fail("container elements must be num, bool, or str");
-            out.elem = e.k;
+                return fail("container elements must be num, bool, str, or record");
+            if (e.k == Type::RECORD) {
+                out.elem = Type::RECORD;
+                out.recId = e.recId;
+            } else {
+                out.elem = e.k;
+            }
             if (!expect(T_GT, "'>'")) return false;
+        } else if (vm.recByName.count(n)) {
+            out.k = Type::RECORD;
+            out.recId = vm.recByName[n];
         } else return fail("unknown type '" + n + "'");
         if (accept(T_QMARK)) out.opt = true;
         return true;
+    }
+    // Element type of a list/map, preserving record id.
+    Type elemType(const Type& container) const {
+        Type t;
+        t.k = container.elem;
+        t.opt = false;
+        t.recId = container.recId;
+        return t;
     }
     // can a value of type src be stored where dst is expected?
     bool assignable(const Type& dst, const Type& src) {
@@ -459,14 +483,36 @@ struct Compiler {
                 if (t.k == Type::LIST) {
                     if (i.k != Type::NUM || i.opt) fail("list index must be num");
                     emit(OP_IGET);
-                    t = {t.elem, false, Type::NUM};
+                    t = elemType(t);
                 } else if (t.k == Type::MAP) {
                     if (i.k != Type::STR || i.opt) fail("map key must be str");
                     emit(OP_MGET);
-                    t = {t.elem, true, Type::NUM}; // map get is optional
+                    t = elemType(t);
+                    t.opt = true; // map get is optional
                 } else {
                     fail("only lists and maps can be indexed");
                 }
+            } else if (cur.kind == T_DOT) {
+                advance();
+                if (cur.kind != T_IDENT) {
+                    fail("expected field name after '.'");
+                    return t;
+                }
+                if (t.k != Type::RECORD || t.opt)
+                    fail("field access needs a record");
+                if (t.recId < 0 || t.recId >= (int)vm.records.size()) {
+                    fail("unknown record type");
+                    return t;
+                }
+                int fi = vm.records[(size_t)t.recId].fieldIndex(cur.text);
+                if (fi < 0) {
+                    fail("unknown field '" + cur.text + "'");
+                    return t;
+                }
+                advance();
+                emit(OP_FGET);
+                emit((uint8_t)fi);
+                t = vm.records[(size_t)t.recId].fieldTypes[(size_t)fi];
             } else break;
         }
         return t;
@@ -511,7 +557,7 @@ struct Compiler {
             if (l.k != Type::LIST || l.opt) fail("push() needs a list first");
             if (!expect(T_COMMA, "','")) return true;
             Type v = expression();
-            Type want{l.elem, false, Type::NUM};
+            Type want = elemType(l);
             checkAssign(want, v, "push()");
             if (!expect(T_RP, "')'")) return true;
             emit(OP_LPUSH);
@@ -523,7 +569,8 @@ struct Compiler {
             if (!one(a)) return true;
             if (a.k != Type::LIST || a.opt) fail("pop() needs a list");
             emit(OP_LPOP);
-            out = {a.elem, true, Type::NUM}; // empty list -> nil
+            out = elemType(a);
+            out.opt = true; // empty list -> nil
             return true;
         }
         return false;
@@ -656,8 +703,9 @@ struct Compiler {
         Type elem{Type::VOID};
         do {
             Type v = expression();
-            if (v.opt || (v.k != Type::NUM && v.k != Type::BOOL && v.k != Type::STR))
-                fail("list elements must be num, bool, or str");
+            if (v.opt || (v.k != Type::NUM && v.k != Type::BOOL &&
+                          v.k != Type::STR && v.k != Type::RECORD))
+                fail("list elements must be num, bool, str, or record");
             if (n == 0) elem = v;
             else if (!elem.sameBase(v)) fail("list elements must share one type");
             n++;
@@ -665,14 +713,81 @@ struct Compiler {
         expect(T_RB, "']'");
         emit(OP_LIST);
         emit((uint8_t)n);
-        return {Type::LIST, false, elem.k};
+        Type lt;
+        lt.k = Type::LIST;
+        lt.elem = elem.k;
+        lt.recId = elem.recId;
+        return lt;
+    }
+
+    // Prop { slot: 0, x: 1, ... } — named fields, any order, all required.
+    Type recordConstruct(const std::string& name) {
+        int rid = vm.recByName[name];
+        const RecordDef& rd = vm.records[(size_t)rid];
+        if (!expect(T_LBRACE, "'{'")) return Type{};
+        const size_t nf = rd.fields.size();
+        std::vector<std::vector<uint8_t>> codes(nf);
+        std::vector<std::vector<int>> flines(nf);
+        std::vector<bool> seen(nf, false);
+        if (cur.kind != T_RBRACE) {
+            do {
+                if (cur.kind != T_IDENT) {
+                    fail("expected a field name");
+                    break;
+                }
+                int fi = rd.fieldIndex(cur.text);
+                if (fi < 0) {
+                    fail("unknown field '" + cur.text + "' on " + name);
+                    break;
+                }
+                if (seen[(size_t)fi]) {
+                    fail("duplicate field '" + cur.text + "'");
+                    break;
+                }
+                seen[(size_t)fi] = true;
+                advance();
+                if (!expect(T_COLON, "':'")) break;
+                size_t c0 = proto->code.size();
+                size_t l0 = proto->lines.size();
+                Type vt = expression();
+                checkAssign(rd.fieldTypes[(size_t)fi], vt,
+                            ("field " + rd.fields[(size_t)fi]).c_str());
+                codes[(size_t)fi].assign(proto->code.begin() + (long)c0,
+                                         proto->code.end());
+                flines[(size_t)fi].assign(proto->lines.begin() + (long)l0,
+                                          proto->lines.end());
+                proto->code.resize(c0);
+                proto->lines.resize(l0);
+            } while (accept(T_COMMA));
+        }
+        if (!expect(T_RBRACE, "'}'")) return Type{};
+        for (size_t i = 0; i < nf; i++) {
+            if (!seen[i]) {
+                fail("missing field '" + rd.fields[i] + "' in " + name);
+                return Type{};
+            }
+            proto->code.insert(proto->code.end(), codes[i].begin(),
+                               codes[i].end());
+            proto->lines.insert(proto->lines.end(), flines[i].begin(),
+                                flines[i].end());
+        }
+        emit2(OP_REC, (uint16_t)rid);
+        Type t;
+        t.k = Type::RECORD;
+        t.recId = rid;
+        return t;
     }
 
     Type identifier() {
         std::string name = cur.text;
         int nameLine = cur.line;
         advance();
-        if (cur.kind == T_DOT) { // namespaced native / const, e.g. lt.draw
+        // record construction: Prop { field: expr, ... }
+        if (vm.recByName.count(name) && cur.kind == T_LBRACE)
+            return recordConstruct(name);
+        // namespaced native / const (lt.draw) — only when `name` is NOT a
+        // local/global (those use field access via parsePostfix).
+        if (cur.kind == T_DOT && !findLocal(name) && !vm.gByName.count(name)) {
             advance();
             if (cur.kind != T_IDENT) { fail("expected name after '.'"); return {Type::VOID}; }
             std::string full = name + "." + cur.text;
@@ -804,25 +919,85 @@ struct Compiler {
             }
             return;
         }
-        if (nk == T_LB) { // x[i] = expr  (or an index-read expression stmt)
-            // compile container ref first
-            Type ct = identifier(); // consumes IDENT and, via postfix? no —
-            // identifier() alone; the '[' is still current token here
-            // (identifier() only handles '.', '(' and plain reads)
+        if (nk == T_DOT) { // x.field = expr  (or namespaced call as stmt)
+            Type ct = identifier();
+            if (cur.kind == T_DOT) {
+                advance(); // .
+                if (cur.kind != T_IDENT) {
+                    fail("expected field name");
+                    return;
+                }
+                if (ct.k != Type::RECORD || ct.opt) {
+                    fail("field assignment needs a record");
+                    return;
+                }
+                int fi = vm.records[(size_t)ct.recId].fieldIndex(cur.text);
+                if (fi < 0) {
+                    fail("unknown field '" + cur.text + "'");
+                    return;
+                }
+                advance();
+                if (!expect(T_ASSIGN, "'='")) return;
+                Type vt = expression();
+                checkAssign(vm.records[(size_t)ct.recId].fieldTypes[(size_t)fi],
+                            vt, "field assignment");
+                emit(OP_FSET);
+                emit((uint8_t)fi);
+                return;
+            }
+            // e.g. lt.clear(...) already fully consumed by identifier
+            if (ct.k != Type::VOID) emit(OP_POP);
+            return;
+        }
+        if (nk == T_LB) { // x[i] = expr  or  x[i].field = expr
+            Type ct = identifier();
             if (cur.kind == T_LB) {
                 advance();
                 Type it = expression();
                 expect(T_RB, "']'");
+                if (cur.kind == T_DOT) {
+                    // x[i].field = expr
+                    if (ct.k != Type::LIST) {
+                        fail("only lists can be indexed for field assign");
+                        return;
+                    }
+                    if (it.k != Type::NUM || it.opt) fail("list index must be num");
+                    emit(OP_IGET);
+                    Type et = elemType(ct);
+                    advance(); // .
+                    if (cur.kind != T_IDENT) {
+                        fail("expected field name");
+                        return;
+                    }
+                    if (et.k != Type::RECORD) {
+                        fail("field assignment needs a record element");
+                        return;
+                    }
+                    int fi = vm.records[(size_t)et.recId].fieldIndex(cur.text);
+                    if (fi < 0) {
+                        fail("unknown field '" + cur.text + "'");
+                        return;
+                    }
+                    advance();
+                    if (!expect(T_ASSIGN, "'='")) return;
+                    Type vt = expression();
+                    checkAssign(
+                        vm.records[(size_t)et.recId].fieldTypes[(size_t)fi], vt,
+                        "field assignment");
+                    emit(OP_FSET);
+                    emit((uint8_t)fi);
+                    return;
+                }
                 if (cur.kind == T_ASSIGN) {
                     advance();
                     Type vt = expression();
                     if (ct.k == Type::LIST) {
                         if (it.k != Type::NUM || it.opt) fail("list index must be num");
-                        checkAssign({ct.elem, false, Type::NUM}, vt, "element");
+                        checkAssign(elemType(ct), vt, "element");
                         emit(OP_ISET);
                     } else if (ct.k == Type::MAP) {
                         if (it.k != Type::STR || it.opt) fail("map key must be str");
-                        checkAssign({ct.elem, false, Type::NUM}, vt, "value");
+                        checkAssign(elemType(ct), vt, "value");
                         emit(OP_MSET);
                     } else fail("only lists and maps can be indexed");
                     return;
@@ -1017,9 +1192,65 @@ struct Compiler {
         scopeDepth = prevDepth;
     }
 
+    void recordStmt() {
+        // record Name { field: type, ... }
+        advance(); // record
+        if (inFn) {
+            fail("record declarations can't nest inside a function");
+            return;
+        }
+        if (cur.kind != T_IDENT) {
+            fail("expected a record name");
+            return;
+        }
+        std::string name = cur.text;
+        advance();
+        if (vm.recByName.count(name) || vm.fnByName.count(name) ||
+            vm.natByName.count(name) || vm.gByName.count(name)) {
+            fail("'" + name + "' already defined");
+            return;
+        }
+        if (!expect(T_LBRACE, "'{'")) return;
+        RecordDef rd;
+        rd.name = name;
+        // Fields: comma and/or newline separated (newlines are just whitespace).
+        while (cur.kind == T_IDENT) {
+            std::string fn = cur.text;
+            advance();
+            if (rd.fieldIndex(fn) >= 0) {
+                fail("duplicate field '" + fn + "'");
+                return;
+            }
+            if (!expect(T_COLON, "':'")) return;
+            Type ft;
+            if (!parseType(ft)) return;
+            if (ft.opt || (ft.k != Type::NUM && ft.k != Type::BOOL &&
+                           ft.k != Type::STR)) {
+                fail("record fields must be num, bool, or str (not optional)");
+                return;
+            }
+            rd.fields.push_back(fn);
+            rd.fieldTypes.push_back(ft);
+            accept(T_COMMA); // optional trailing comma between fields
+        }
+        if (!expect(T_RBRACE, "'}'")) return;
+        if (rd.fields.empty()) {
+            fail("record must have at least one field");
+            return;
+        }
+        if (rd.fields.size() > 255) {
+            fail("too many fields (max 255)");
+            return;
+        }
+        int id = (int)vm.records.size();
+        vm.records.push_back(std::move(rd));
+        vm.recByName[name] = id;
+    }
+
     void statement() {
         switch (cur.kind) {
         case T_LET: letStmt(); return;
+        case T_RECORD: recordStmt(); return;
         case T_FN:
             if (inFn) { fail("fn declarations can't nest"); return; }
             fnStmt();

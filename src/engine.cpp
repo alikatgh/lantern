@@ -221,6 +221,12 @@ void lt_sprite_uv(int tex, float x, float y, float w, float h, float u0,
     E.gfx.spriteUV(tex, x, y, w, h, u0, v0, u1, v1);
 }
 
+void lt_sprite_uv_tinted(int tex, float x, float y, float w, float h, float u0,
+                         float v0, float u1, float v1, float r, float g,
+                         float b) {
+    E.gfx.spriteUVTinted(tex, x, y, w, h, u0, v0, u1, v1, r, g, b);
+}
+
 void lt_print(const char* text, float x, float y, float r, float g, float b,
               float a) {
     E.gfx.print(text, x, y, r, g, b, a);
@@ -258,6 +264,10 @@ int lt_sound_play(int sound, float volume, int loop) {
 }
 
 void lt_sound_stop(int channel) { lt::audioStop(channel); }
+
+void lt_channel_volume(int channel, float volume) {
+    lt::audioChannelVolume(channel, volume);
+}
 
 void lt_master_volume(float volume) { lt::audioMaster(volume); }
 

@@ -73,22 +73,21 @@ unless the bundled binary actually renders a frame.
 
 **Games ship as `.lant` packages** — one CRC-checked file made with
 `lantern_pack mygame/ mygame.lant` and played with `lantern mygame.lant`
-([format spec](docs/PACKAGE.md)). Store packages are wick-only, which is a
-security guarantee, not a preference: a wick game's only exits are the
-typed `lt.*` natives, so distributed games can't touch files or the
-network. Sell yours on the [lantern store](https://famemu.aulenor.com/store/)
-— developers keep 85%.
+([format spec](docs/PACKAGE.md)). Nested asset paths (`assets/foo.bmp`) are
+supported; load paths refuse directory escape; package-mode screenshots
+cannot write arbitrary host paths. Store packages are wick-only: a wick
+game's only exits are the typed `lt.*` natives. Sell yours on the
+[lantern store](https://famemu.aulenor.com/store/) — developers keep 85%.
 
 ## wick — lantern's own language
 
 lantern ships its own scripting language: **wick** — Lua's size and feel
 with the sharp edges designed out. Statically typed with `T?` optionals
 (the "empty save file crashes the game" class of bug is a *compile error*),
-locals-only (typos can't create silent globals), 0-based indexing, strict
-bool conditions, typed engine bindings (wrong `lt.draw` args fail at
-compile time, on the error screen), deterministic `rand()`, and GC that
-runs only between frames. The compiler + VM are ~2k lines in `wick/`,
-zero dependencies, same zlib license.
+**flat records** (`record Prop { x: num, y: num }`), locals-only, 0-based
+indexing, strict bool conditions, typed engine bindings, deterministic
+`rand()`, and GC that runs only between frames. The compiler + VM are
+~2.1k lines in `wick/`, zero dependencies, same zlib license.
 
 A game is a folder with `main.wick` (the host prefers it over `main.lua`):
 
@@ -104,13 +103,15 @@ fn draw() {
 }
 ```
 
-Full language reference: [docs/WICK.md](docs/WICK.md). Try it:
-`./build/lantern games/wicklab`, or play the real thing:
-`./build/lantern games/showcase_wick` — **Lantern Night ported to wick**,
-kept as a separate project beside the Lua build (`games/showcase`) on
-purpose: the two evolve together so the languages stay comparable on the
-same game. Test suite: `tests/wick_test.sh` (runs in CI — including eight
-programs that MUST fail to compile, plus the wick Lantern Night self-play).
+**Docs & blog:** [docs/WICK.md](docs/WICK.md) · [CHANGELOG](CHANGELOG.md) ·
+public site [wick.famemu.aulenor.com](https://wick.famemu.aulenor.com/)
+(reference + [blog](https://wick.famemu.aulenor.com/docs/blog/)).
+
+Try it: `./build/lantern games/wicklab`, or **Lantern Night in wick** —
+`./build/lantern games/showcase_wick` (side-by-side with the Lua build so
+the languages stay comparable). CI: `tests/wick_test.sh` (semantics +
+must-fail-to-compile + self-play), `tests/path_sandbox_test.sh`,
+`tests/package_test.sh`.
 
 ## Make a game (Lua)
 

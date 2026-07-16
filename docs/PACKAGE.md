@@ -48,13 +48,21 @@ and warns — fine for testing, not accepted by the store.
 8    magic "LANTPKG1"
 u32  file count                       (1..1024)
 per file:
-  u16  name length, name bytes        (utf-8, FLAT — no '/', no '..',
-                                       no leading '.', max 255 bytes)
+  u16  name length, name bytes        (utf-8 relative path — '/' allowed
+                                       for nested assets like assets/x.bmp;
+                                       no '..', no absolute, no leading '.',
+                                       no '\', max 255 bytes)
   u32  data length, data bytes        (max 64 MB/file, 256 MB/package)
 u32  CRC-32 (IEEE) of every byte before it
 ```
 
-Packages are flat because game folders are flat. The reader validates
-names, sizes, and the checksum before a single byte is extracted;
-`tests/package_test.sh` proves a packed game renders byte-identical to
-its folder and that a corrupted package is refused.
+`lantern_pack` walks the game folder **recursively** and stores relative
+paths. Flat games (showcase_wick) still pack as before. Nested layouts
+(KORA's `assets/…`) pack and extract with the same relative names.
+Load natives resolve under the game directory and **refuse** `..` /
+absolute paths. In package mode, `lt.screenshot` may only write under
+the extract directory (basename only).
+
+The reader validates names, sizes, and the checksum before a single byte
+is extracted; `tests/package_test.sh` proves a packed game renders
+byte-identical to its folder and that a corrupted package is refused.

@@ -84,6 +84,19 @@ srand(42)
 let r1 = rand()
 srand(42)
 check(rand() == r1, "deterministic rand")
+// records: flat named fields, list<record>, field get/set
+record Pt { x: num, y: num }
+let origin = Pt { x: 0, y: 0 }
+check(origin.x == 0, "record field get")
+origin.y = 7
+check(origin.y == 7, "record field set")
+let pts: list<Pt> = []
+push(pts, Pt { x: 1, y: 2 })
+push(pts, Pt { x: 3, y: 4 })
+check(len(pts) == 2, "list of records len")
+check(pts[1].x == 3, "list record field")
+pts[0].y = 9
+check(pts[0].y == 9, "list record field set")
 fn draw() { lt.clear(0, 0.2, 0) }
 EOF
 if run_game "$TMP/sem"; then ok "semantics suite"; else bad "semantics suite"; fi
@@ -126,6 +139,16 @@ expect_error "undeclared variable" "unknown variable" \
 
 expect_error "nil needs annotation" "annotate" \
 'let x = nil'
+
+expect_error "unknown record field" "unknown field" \
+'record Pt { x: num }
+let p = Pt { x: 1, y: 2 }
+fn draw() { lt.clear(0,0,0) }'
+
+expect_error "record field type" "field" \
+'record Pt { x: num }
+let p = Pt { x: "nope" }
+fn draw() { lt.clear(0,0,0) }'
 
 # ---------- 3. the real game: wick Lantern Night self-plays ----------
 # anchor to the repo, not the CWD — ctest runs from build/

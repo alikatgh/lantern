@@ -11,9 +11,22 @@ tongue.*
 it.** A feature enters the language only when real game code demonstrably
 hurt without it; the side-by-side Kora Night builds (`games/showcase` vs
 `games/showcase_wick`) are the standing evidence mechanism. Optionals are
-in because a shipped save-file crash demanded them. Closures, structs,
+in because a shipped save-file crash demanded them. **Records** are in
+because KORA's kitchen props became five parallel lists. Closures and
 modules are not "scheduled" — they are candidates that have not yet earned
 admission. Feature-parity with other languages is explicitly not a reason.
+
+## Feature evidence ledger
+
+Candidates awaiting admission, each with the real pain that would justify
+it. A feature crosses the bar only when a shipped or in-progress game is
+concretely worse without it.
+
+| Candidate | Evidence (where it hurt) | Status |
+|---|---|---|
+| String indexing / iteration | KORA-on-lantern (`kora/lantern`) can't parse its ASCII tile maps in-game; the world is baked to number lists at build time by a Python tool. | Recorded, not yet admitted — baking is a clean static workaround. |
+| Structs / records | KORA kitchen props: five parallel lists. | **Admitted (flat `record`)** — named fields, `list<record>`, field get/set; no methods. |
+| Closures / first-class fns | No shipped program has paid a price yet. | Candidate, no evidence. |
 
 ## Why (each Lua disadvantage, fixed by design)
 
@@ -67,8 +80,10 @@ fn draw() {
   rand srand`. `num(s: str): num?` — parse failure is `nil`, and the type
   system makes you handle it.
 - Declare before use (C-style, one pass). Top-level statements run at load.
-- Comments `//`. No classes, no closures, no metatables in v0.1 — a game
-  script language, ruthlessly small, like Lua was at 1.0.
+- Comments `//`. **Records** (flat, no methods):
+  `record Pt { x: num, y: num }` then `Pt { x: 1, y: 2 }`, `p.x`, `p.x = 3`,
+  `list<Pt>`. Field types are num/bool/str only. No classes, no closures,
+  no metatables — a game script language, ruthlessly small.
 
 ## Optionals — the headline feature
 
@@ -98,9 +113,14 @@ work exactly as with Lua — compile errors show file:line on screen.
 - `src/wick_host.cpp` — the typed `lt.*` bindings + game host
 - `games/template_wick/` — the starter, in wick
 
-## v0.1 scope honesty
+## Scope honesty (v0.2 surface)
 
-No closures, classes, generics beyond `list/map`, multi-file imports,
-string methods, or varargs — deliberately. Every one of those is addable
-behind the same typed front end. The bar for v0.1: run real lantern games,
-catch the bug classes Lua couldn't, stay under ~2.5k lines.
+**In:** optionals, locals-only, typed `lt.*`, frame-boundary GC, deterministic
+`rand`, flat **records** + `list<record>`, path-sandboxed loads.
+
+**Not yet:** closures, classes, nested containers (`list<list<…>>`), multi-file
+imports, string indexing/methods, varargs, branded handle types (`tex`/`snd`).
+Every one of those is addable behind the same typed front end — when a game
+pays the cost. The bar: run real lantern games (Lantern Night, KORA), catch
+the bug classes Lua couldn't, stay small enough to read in an afternoon
+(~2.1k lines today).

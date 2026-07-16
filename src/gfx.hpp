@@ -62,6 +62,8 @@ struct Gfx {
                   float r, float g, float b, float a);
     void spriteUV(int tex, float x, float y, float w, float h, float u0,
                   float v0, float u1, float v1);
+    void spriteUVTinted(int tex, float x, float y, float w, float h, float u0,
+                        float v0, float u1, float v1, float r, float g, float b);
     void print(const char* text, float x, float y, float r, float g, float b,
                float a);              // built-in 8x8 font, 8px advance
 

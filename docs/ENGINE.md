@@ -40,30 +40,32 @@ nothing is a filter.
 - **2D and 3D coexist per frame**: 3D scene (depth-tested) then 2D
   sprites/HUD composited on top at native 400×240 pixels.
 
-## Architecture
+## Architecture (current — 2026-07-14)
 
 ```
 engine/
-  include/lantern.h      ← the C ABI (what non-Lua devs/hosts link against)
+  include/lantern.h      ← the C ABI (dogfooded by Lua + wick hosts)
   src/
-    main.cpp             ← SDL2 host: window, GL context, main loop, Lua VM
-    gfx.cpp / gfx.hpp    ← renderer: 400×240 FBO, sprite batch, mesh pipeline
-    lantern_math.h       ← mat4/vec3 (column-major, GL conventions)
-  games/
-    demo/main.lua        ← hello-world scene (spinning stupa, HUD)
+    main.cpp             ← desktop host: package extract, Lua path
+    wick_host.cpp        ← wick host: typed lt.* natives, hot-reload
+    package.cpp          ← .lant read/write/extract
+    path_sandbox.cpp     ← resolve-under-game-dir for every load_*
+    gfx.cpp              ← software rasterizer (400×240, no GPU API)
+    platform_sdl.cpp     ← window / input / audio device only
+    platform_ios.mm      ← iOS present (Metal of the same buffer)
+  wick/                  ← language: front-end + VM (~2.1k lines)
+  games/                 ← demos + Lantern Night (Lua + wick)
   docs/ENGINE.md         ← this file
 ```
 
-- **Host** owns SDL, GL and the Lua state. A game is a directory with a
-  `main.lua` defining `update(dt)` and `draw()`.
-- **Renderer**: one offscreen FBO (400×240, RGBA8 + depth). Mesh draws are
-  immediate (depth on). Sprite/rect calls accumulate in a batch flushed after
-  `draw()` returns (depth off, alpha blend) — HUD always composites over 3D.
-  The FBO blits to the window with integer scaling, letterboxed.
-- **Lua API** (`lt.*`) is intentionally LÖVE/PICO-8-small. The C ABI in
-  `lantern.h` will expose the same surface for C/C++ games; Lua bindings are
-  its first consumer (dogfooding the ABI is a v0.2 refactor — v0.1 binds
-  internals directly to get KORA moving).
+- **Host** owns the platform and scripting VM. A game is a directory with
+  `main.wick` (preferred) or `main.lua` defining `update(dt)` / `draw()`.
+- **Renderer**: software rasterizer to a 400×240 buffer (depth, gouraud,
+  fog, alpha-test). 2D batch composites after the 3D pass. Integer-upscaled
+  and letterboxed to the window. SDL/Metal present only — no GL draw path.
+- **Security for store**: load paths refuse escape; package-mode
+  screenshots stay under the extract dir; store packages are wick-only.
+  See [PACKAGE.md](PACKAGE.md).
 
 ## Lua API v0.3
 

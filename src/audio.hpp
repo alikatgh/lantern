@@ -9,6 +9,7 @@ void audioShutdown();
 int  audioLoad(const char* wavPath);            // -1 on failure
 int  audioPlay(int sound, float volume, bool loop); // returns channel or -1
 void audioStop(int channel);
+void audioChannelVolume(int channel, float volume); // live fades/crossfades
 void audioMaster(float volume);
 void audioReset();              // stop all channels, free all sounds
 // Called by the platform audio callback: mix `frames` interleaved stereo

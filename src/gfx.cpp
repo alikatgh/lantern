@@ -813,6 +813,16 @@ void Gfx::spriteUV(int tex, float x, float y, float w, float h, float u0,
     pushQuad(tex, x, y, w, h, u0, v0, u1, v1, 1, 1, 1, 1);
 }
 
+// like spriteUV but multiplies each texel by (r,g,b) — a per-sprite modulate
+// (Godot-style tint); texel alpha still keys transparency. r/g/b clamp to >=0.
+void Gfx::spriteUVTinted(int tex, float x, float y, float w, float h, float u0,
+                         float v0, float u1, float v1, float r, float g,
+                         float b) {
+    if (tex < 0 || tex >= (int)textures_.size()) return;
+    pushQuad(tex, x, y, w, h, u0, v0, u1, v1,
+             r < 0 ? 0 : r, g < 0 ? 0 : g, b < 0 ? 0 : b, 1);
+}
+
 void Gfx::print(const char* text, float x, float y, float r, float g, float b,
                 float a) {
     float cx = x;

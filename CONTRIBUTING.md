@@ -28,6 +28,9 @@ there.
    BMP — eyeball it, and check `games/stress` still holds 60 fps.
 4. Fixed a bug? Append an entry to [docs/BUG_JOURNAL.md](docs/BUG_JOURNAL.md)
    **in the same commit** — 5 lines max: symptom, cause, fix, lesson.
+5. Changed wick? Update [docs/WICK.md](docs/WICK.md), [CHANGELOG.md](CHANGELOG.md),
+   and the public site at `../wick-site/` (reference page + a blog post when
+   the change is a design decision or release). See wick-site README.
 
 ## License
 

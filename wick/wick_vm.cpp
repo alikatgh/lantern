@@ -18,13 +18,16 @@ Obj* VM::newObj(Obj::K k) {
 }
 
 static void markValue(const Value& v) {
-    if ((v.tag == Value::STR || v.tag == Value::LIST || v.tag == Value::MAP) &&
+    if ((v.tag == Value::STR || v.tag == Value::LIST || v.tag == Value::MAP ||
+         v.tag == Value::REC) &&
         v.o && !v.o->mark) {
         v.o->mark = true;
         if (v.o->k == Obj::LIST)
             for (const Value& e : v.o->list) markValue(e);
         else if (v.o->k == Obj::MAP)
             for (auto& kv : v.o->map) markValue(kv.second);
+        else if (v.o->k == Obj::REC)
+            for (const Value& e : v.o->fields) markValue(e);
     }
 }
 
@@ -68,6 +71,8 @@ void reset(VM* vm) {
     vm->globals.clear();
     vm->gtypes.clear();
     vm->gByName.clear();
+    vm->records.clear();
+    vm->recByName.clear();
     vm->stack.clear();
     vm->rerr.clear();
     collect(vm); // consts/globals emptied: everything unreferenced dies
@@ -161,6 +166,7 @@ static std::string valToStr(const Value& v) {
     case Value::STR: return v.o->s;
     case Value::LIST: return "<list>";
     case Value::MAP: return "<map>";
+    case Value::REC: return "<record>";
     }
     return "?";
 }
@@ -417,6 +423,39 @@ bool run(VM& vm, int protoIdx, const Value* args, int argc, Value& out,
                 st.back() = o->list.back();
                 o->list.pop_back();
             }
+            break;
+        }
+        case OP_REC: {
+            uint16_t rid = (uint16_t)code[fr.ip] |
+                           ((uint16_t)code[fr.ip + 1] << 8);
+            fr.ip += 2;
+            if (rid >= vm.records.size())
+                return rt("bad record id", LINE);
+            const RecordDef& rd = vm.records[rid];
+            const int n = (int)rd.fields.size();
+            Obj* o = vm.newObj(Obj::REC);
+            o->recId = (int)rid;
+            o->fields.assign(st.end() - n, st.end());
+            st.resize(st.size() - (size_t)n);
+            Value v; v.tag = Value::REC; v.o = o;
+            st.push_back(v);
+            break;
+        }
+        case OP_FGET: {
+            uint8_t fi = code[fr.ip++];
+            Obj* o = st.back().o;
+            if (!o || o->k != Obj::REC || fi >= o->fields.size())
+                return rt("bad field get", LINE);
+            st.back() = o->fields[fi];
+            break;
+        }
+        case OP_FSET: {
+            Value v = st.back(); st.pop_back();
+            uint8_t fi = code[fr.ip++];
+            Obj* o = st.back().o; st.pop_back();
+            if (!o || o->k != Obj::REC || fi >= o->fields.size())
+                return rt("bad field set", LINE);
+            o->fields[fi] = v;
             break;
         }
         case OP_HALT:

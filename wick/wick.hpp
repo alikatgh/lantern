@@ -12,7 +12,7 @@ namespace wick {
 struct Obj; // Str / List / Map (GC-managed, defined internally)
 
 struct Value {
-    enum Tag : uint8_t { NIL, NUM, BOOL, STR, LIST, MAP } tag = NIL;
+    enum Tag : uint8_t { NIL, NUM, BOOL, STR, LIST, MAP, REC } tag = NIL;
     union {
         double d;
         bool b;

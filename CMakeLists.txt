@@ -40,7 +40,8 @@ target_compile_options(wick PRIVATE -Wall -Wextra)
 
 # The bundled host: `lantern <game_dir | game.lant>` runs main.wick if
 # present, else main.lua; .lant packages extract to a temp dir first.
-add_executable(lantern src/main.cpp src/wick_host.cpp src/package.cpp)
+add_executable(lantern src/main.cpp src/wick_host.cpp src/package.cpp
+                       src/path_sandbox.cpp)
 target_include_directories(lantern PRIVATE ${LUA_INCLUDE_DIRS})
 target_link_directories(lantern PRIVATE ${LUA_LIBRARY_DIRS})
 target_link_libraries(lantern lantern_core wick ${LUA_LINK})
@@ -81,3 +82,8 @@ add_test(NAME package
          COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/package_test.sh
                       $<TARGET_FILE:lantern> $<TARGET_FILE:lantern_pack>
                       ${CMAKE_CURRENT_SOURCE_DIR})
+
+# load_* path sandbox: .. and absolute paths must be refused by the host.
+add_test(NAME path_sandbox
+         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/path_sandbox_test.sh
+                      $<TARGET_FILE:lantern>)

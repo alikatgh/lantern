@@ -218,6 +218,14 @@ int audioPlay(int sound, float volume, bool loop) {
     return -1;
 }
 
+void audioChannelVolume(int channel, float volume) {
+    if (channel < 0 || channel >= CHANNELS) return;
+    if (volume < 0) volume = 0;
+    if (volume > 1) volume = 1;
+    std::lock_guard<std::mutex> lock(mixMutex);
+    M.channels[channel].volume = volume;
+}
+
 void audioStop(int channel) {
     if (channel < 0 || channel >= CHANNELS) return;
     std::lock_guard<std::mutex> lock(mixMutex);

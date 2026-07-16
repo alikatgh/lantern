@@ -6,6 +6,7 @@
 // 400×240 FBO, exit 0. Verify by frames, never by "it compiled".
 #include "lantern.h"
 #include "package.hpp"
+#include "path_sandbox.hpp"
 extern "C" {
 #include <lua.h>
 #include <lualib.h>
@@ -19,6 +20,14 @@ extern "C" {
 #include <vector>
 
 static std::string g_gameDir;
+
+// Resolve a game-relative path or raise a Lua error.
+static std::string resolveGamePath(lua_State* L, const char* rel) {
+    std::string out, err;
+    if (!lt::pathResolveUnder(g_gameDir, rel ? rel : "", out, err))
+        luaL_error(L, "path refused: %s", err.c_str());
+    return out;
+}
 
 // ---------------- Lua bindings (lt.*) — thin shims over lt_* ----------------
 
@@ -102,7 +111,7 @@ static int l_mesh(lua_State* L) {
 }
 
 static int l_load_mesh(lua_State* L) {
-    std::string p = g_gameDir + "/" + luaL_checkstring(L, 1);
+    std::string p = resolveGamePath(L, luaL_checkstring(L, 1));
     int id = lt_mesh_load_obj(p.c_str());
     if (id < 0) return luaL_error(L, "load_mesh failed: %s", p.c_str());
     lua_pushinteger(L, id);
@@ -162,7 +171,7 @@ static int l_rect(lua_State* L) {
 }
 
 static int l_load_texture(lua_State* L) {
-    std::string p = g_gameDir + "/" + luaL_checkstring(L, 1);
+    std::string p = resolveGamePath(L, luaL_checkstring(L, 1));
     int w = 0, h = 0;
     int id = lt_texture_load(p.c_str(), &w, &h);
     if (id < 0) return luaL_error(L, "load_texture failed: %s", p.c_str());
@@ -220,7 +229,7 @@ static int l_pressed(lua_State* L) {
 }
 
 static int l_load_sound(lua_State* L) {
-    std::string p = g_gameDir + "/" + luaL_checkstring(L, 1);
+    std::string p = resolveGamePath(L, luaL_checkstring(L, 1));
     int id = lt_sound_load(p.c_str());
     if (id < 0) return luaL_error(L, "load_sound failed: %s", p.c_str());
     lua_pushinteger(L, id);
@@ -245,7 +254,11 @@ static int l_volume(lua_State* L) {
 }
 
 static int l_screenshot(lua_State* L) {
-    lt_screenshot(luaL_checkstring(L, 1));
+    std::string out, err;
+    if (!lt::pathResolveScreenshot(g_gameDir, luaL_checkstring(L, 1), out,
+                                   err))
+        return luaL_error(L, "screenshot refused: %s", err.c_str());
+    lt_screenshot(out.c_str());
     return 0;
 }
 
@@ -423,6 +436,8 @@ int main(int argc, char** argv) {
             return 1;
         }
         g_gameDir = buf.data();
+        lt::pathSetPackageMode(true);
+        lt::pathSetScreenshotDir(g_gameDir); // screenshots stay in extract dir
     }
 
     // a game written in wick takes precedence over Lua

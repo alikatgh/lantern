@@ -1,12 +1,13 @@
 // package.hpp — the .lant game package: lantern's own archive format.
 // One file, whole game: manifest + scripts + assets, CRC-checked. Nothing
-// borrowed (no zip/tar) — ~150 lines we fully control, like everything else.
+// borrowed (no zip/tar) — ~200 lines we fully control, like everything else.
 //
 // Layout (all integers little-endian):
 //   8   magic "LANTPKG1"
 //   u32 file count
-//   per file:  u16 name length, name bytes (utf-8, '/' separators,
-//              validated: no "..", no leading '/', no '\'),
+//   per file:  u16 name length, name bytes (utf-8, relative path with '/'
+//              separators allowed; validated: no "..", no absolute, no
+//              leading '.', no '\'),
 //              u32 data length, data bytes
 //   u32 CRC-32 (IEEE) of every byte before it
 //
@@ -34,8 +35,7 @@ bool pkgRead(const std::string& path, std::vector<PkgFile>& out,
 // Write a package from files (caller puts game.info first).
 bool pkgWrite(const std::string& path, const std::vector<PkgFile>& files,
               std::string& err);
-// Extract into dir (created if needed; subdirs are rejected by the name
-// validator, so games stay flat — same rule as game folders).
+// Extract into dir (created if needed). Nested names create subdirs.
 bool pkgExtract(const std::string& path, const std::string& dir,
                 std::string& err);
 

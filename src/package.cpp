@@ -2,6 +2,7 @@
 #include "package.hpp"
 #include <cstdio>
 #include <cstring>
+#include <sys/stat.h>
 
 namespace lt {
 
@@ -25,13 +26,50 @@ uint32_t getU32(const uint8_t* p) {
            ((uint32_t)p[3] << 24);
 }
 
-// A name is a flat file name: utf-8, no path separators at all, no "..",
-// nothing hidden. Games are flat folders; packages stay flat too.
+// Package entry names: relative, utf-8, '/' separators allowed (one or more
+// segments). No '..', no absolute, no leading '.', no backslash. Flat names
+// (no '/') remain valid — showcase_wick packs unchanged.
 bool nameOk(const std::string& n) {
     if (n.empty() || n.size() > 255) return false;
-    if (n[0] == '.') return false; // no hidden files, no "." / ".."
-    for (char c : n)
-        if (c == '/' || c == '\\' || c == 0) return false;
+    if (n[0] == '/' || n[0] == '.') return false;
+    if (n.back() == '/') return false;
+    size_t i = 0;
+    while (i < n.size()) {
+        size_t j = n.find('/', i);
+        if (j == std::string::npos) j = n.size();
+        if (j == i) return false; // empty segment ("//")
+        std::string seg = n.substr(i, j - i);
+        if (seg == "." || seg == "..") return false;
+        if (seg[0] == '.') return false;
+        for (char c : seg)
+            if (c == '\\' || c == 0) return false;
+        i = j + 1;
+    }
+    return true;
+}
+
+// mkdir -p for the parent of path (path is root/name, may contain '/').
+bool ensureParentDirs(const std::string& path) {
+    size_t slash = path.find_last_of('/');
+    if (slash == std::string::npos) return true;
+    std::string dir = path.substr(0, slash);
+    if (dir.empty()) return true;
+    // Walk segments under the extract root (already created by mkdtemp).
+    size_t start = 0;
+    // If path is absolute (temp dir), create from root of that path.
+    if (dir[0] == '/') start = 1;
+    for (size_t p = start; p <= dir.size(); p++) {
+        if (p == dir.size() || dir[p] == '/') {
+            std::string sub = dir.substr(0, p);
+            if (sub.empty() || sub == "/") continue;
+            struct stat st{};
+            if (stat(sub.c_str(), &st) == 0) {
+                if (!S_ISDIR(st.st_mode)) return false;
+            } else if (mkdir(sub.c_str(), 0755) != 0) {
+                return false;
+            }
+        }
+    }
     return true;
 }
 
@@ -175,6 +213,10 @@ bool pkgExtract(const std::string& path, const std::string& dir,
     if (!pkgRead(path, files, err)) return false;
     for (const PkgFile& pf : files) {
         const std::string p = dir + "/" + pf.name;
+        if (!ensureParentDirs(p)) {
+            err = "cannot create directories for " + p;
+            return false;
+        }
         FILE* f = std::fopen(p.c_str(), "wb");
         if (!f) {
             err = "cannot write " + p;

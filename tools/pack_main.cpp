@@ -2,6 +2,9 @@
 // folder for the store. The inverse lives in the engine host: `lantern
 // game.lant` extracts and runs it. Store packages are wick-only — main.wick
 // must exist (see docs/PACKAGE.md for why).
+//
+// Walks the game folder recursively. Nested relative names (assets/x.bmp)
+// are stored with '/' separators; flat games still pack as before.
 #include "../src/package.hpp"
 #include <cstdio>
 #include <cstring>
@@ -24,6 +27,37 @@ static bool readAll(const std::string& path, std::vector<uint8_t>& out) {
     size_t got = out.empty() ? 0 : std::fread(out.data(), 1, out.size(), f);
     std::fclose(f);
     return got == out.size();
+}
+
+// Recursively collect files under root/rel into files with package names.
+static void collect(const std::string& root, const std::string& rel,
+                    std::vector<lt::PkgFile>& files) {
+    const std::string path = rel.empty() ? root : root + "/" + rel;
+    DIR* d = opendir(path.c_str());
+    if (!d) return;
+    while (dirent* e = readdir(d)) {
+        std::string n = e->d_name;
+        if (n.empty() || n[0] == '.') continue;
+        if (n == "game.info") continue; // handled first
+        std::string childRel = rel.empty() ? n : rel + "/" + n;
+        std::string childPath = root + "/" + childRel;
+        struct stat st{};
+        if (stat(childPath.c_str(), &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) {
+            collect(root, childRel, files);
+            continue;
+        }
+        if (!S_ISREG(st.st_mode)) continue;
+        lt::PkgFile pf;
+        pf.name = childRel;
+        if (!readAll(childPath, pf.data)) {
+            std::fprintf(stderr, "lantern_pack: skipping unreadable %s\n",
+                         childRel.c_str());
+            continue;
+        }
+        files.push_back(std::move(pf));
+    }
+    closedir(d);
 }
 
 int main(int argc, char** argv) {
@@ -54,7 +88,8 @@ int main(int argc, char** argv) {
         size_t slash = base.find_last_of('/');
         if (slash != std::string::npos) base = base.substr(slash + 1);
         std::string s = "id=local." + base + "\ntitle=" + base +
-                        "\nversion=0.0.0\nauthor=unknown\nentry=main.wick\n";
+                        "\nversion=0.0.0\nauthor=unknown\nentry=main.wick\n"
+                        "engine=0.7\n";
         info.data.assign(s.begin(), s.end());
         std::fprintf(stderr,
                      "lantern_pack: no game.info in %s — synthesized one "
@@ -62,25 +97,7 @@ int main(int argc, char** argv) {
                      dir.c_str());
     }
     files.push_back(std::move(info));
-
-    DIR* d = opendir(dir.c_str());
-    if (!d) {
-        std::fprintf(stderr, "lantern_pack: cannot read %s\n", dir.c_str());
-        return 1;
-    }
-    while (dirent* e = readdir(d)) {
-        std::string n = e->d_name;
-        if (n.empty() || n[0] == '.' || n == "game.info") continue;
-        lt::PkgFile pf;
-        pf.name = n;
-        if (!readAll(dir + "/" + n, pf.data)) {
-            std::fprintf(stderr, "lantern_pack: skipping unreadable %s\n",
-                         n.c_str());
-            continue; // subdirectories land here too — packages are flat
-        }
-        files.push_back(std::move(pf));
-    }
-    closedir(d);
+    collect(dir, "", files);
 
     std::string err;
     if (!lt::pkgWrite(out, files, err)) {

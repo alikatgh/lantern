@@ -5,6 +5,7 @@
 // compile error on screen, not a runtime surprise.
 #include "wick_host.hpp"
 #include "lantern.h"
+#include "path_sandbox.hpp"
 #include "../wick/wick.hpp"
 #include <cstdio>
 #include <fstream>
@@ -17,6 +18,16 @@ using wick::Value;
 using wick::VM;
 
 static std::string g_dir;
+
+// Resolve under g_dir or set a runtime error and return false.
+static bool resolvePath(VM& vm, const std::string& rel, std::string& out) {
+    std::string err;
+    if (!lt::pathResolveUnder(g_dir, rel, out, err)) {
+        wick::setError(vm, "path refused: " + err);
+        return false;
+    }
+    return true;
+}
 
 // ---- natives: thin typed shims over lt_* ----------------------------------
 #define N0(name, call) \
@@ -45,7 +56,9 @@ static Value wMesh(VM& vm, const Value* a, int) {
     return Value::num(lt_mesh_create(v.data(), n / 12));
 }
 static Value wLoadMesh(VM& vm, const Value* a, int) {
-    int id = lt_mesh_load_obj((g_dir + "/" + wick::getStr(a[0])).c_str());
+    std::string p;
+    if (!resolvePath(vm, wick::getStr(a[0]), p)) return Value::num(-1);
+    int id = lt_mesh_load_obj(p.c_str());
     if (id < 0) wick::setError(vm, "load_mesh failed: " + wick::getStr(a[0]));
     return Value::num(id);
 }
@@ -66,26 +79,32 @@ static Value wShadow(VM&, const Value* a, int) { lt_shadow(NARG(0), NARG(1), NAR
 static Value wBillboard(VM&, const Value* a, int) { lt_billboard((int)a[0].d, NARG(1), NARG(2), NARG(3), NARG(4), NARG(5), NARG(6), NARG(7), NARG(8), NARG(9)); return Value::nil(); }
 static Value wRect(VM&, const Value* a, int) { lt_rect(NARG(0), NARG(1), NARG(2), NARG(3), NARG(4), NARG(5), NARG(6), NARG(7)); return Value::nil(); }
 static Value wLoadTexture(VM& vm, const Value* a, int) {
+    std::string p;
+    if (!resolvePath(vm, wick::getStr(a[0]), p)) return Value::num(-1);
     int w, h;
-    int id = lt_texture_load((g_dir + "/" + wick::getStr(a[0])).c_str(), &w, &h);
+    int id = lt_texture_load(p.c_str(), &w, &h);
     if (id < 0) wick::setError(vm, "load_texture failed: " + wick::getStr(a[0]));
     return Value::num(id);
 }
 static Value wSprite(VM&, const Value* a, int) { lt_sprite((int)a[0].d, NARG(1), NARG(2), NARG(3), NARG(4)); return Value::nil(); }
 static Value wSpriteEx(VM&, const Value* a, int) { lt_sprite_ex((int)a[0].d, NARG(1), NARG(2), NARG(3), NARG(4), NARG(5), NARG(6), NARG(7), NARG(8), NARG(9)); return Value::nil(); }
 static Value wSpriteUV(VM&, const Value* a, int) { lt_sprite_uv((int)a[0].d, NARG(1), NARG(2), NARG(3), NARG(4), NARG(5), NARG(6), NARG(7), NARG(8)); return Value::nil(); }
+static Value wSpriteUVTinted(VM&, const Value* a, int) { lt_sprite_uv_tinted((int)a[0].d, NARG(1), NARG(2), NARG(3), NARG(4), NARG(5), NARG(6), NARG(7), NARG(8), NARG(9), NARG(10), NARG(11)); return Value::nil(); }
 static Value wPrint(VM&, const Value* a, int) { lt_print(wick::getStr(a[0]).c_str(), NARG(1), NARG(2), NARG(3), NARG(4), NARG(5), NARG(6)); return Value::nil(); }
 static Value wKey(VM&, const Value* a, int) { return Value::boolean(lt_input_down(wick::getStr(a[0]).c_str()) != 0); }
 static Value wPressed(VM&, const Value* a, int) { return Value::boolean(lt_input_pressed(wick::getStr(a[0]).c_str()) != 0); }
 static Value wGamepad(VM&, const Value*, int) { return Value::boolean(lt_gamepad_connected() != 0); }
 static Value wRumble(VM&, const Value* a, int) { lt_rumble(NARG(0), NARG(1), (int)a[2].d); return Value::nil(); }
 static Value wLoadSound(VM& vm, const Value* a, int) {
-    int id = lt_sound_load((g_dir + "/" + wick::getStr(a[0])).c_str());
+    std::string p;
+    if (!resolvePath(vm, wick::getStr(a[0]), p)) return Value::num(-1);
+    int id = lt_sound_load(p.c_str());
     if (id < 0) wick::setError(vm, "load_sound failed: " + wick::getStr(a[0]));
     return Value::num(id);
 }
 static Value wPlay(VM&, const Value* a, int) { return Value::num(lt_sound_play((int)a[0].d, NARG(1), a[2].d != 0)); }
 static Value wStop(VM&, const Value* a, int) { lt_sound_stop((int)a[0].d); return Value::nil(); }
+static Value wChanVol(VM&, const Value* a, int) { lt_channel_volume((int)a[0].d, NARG(1)); return Value::nil(); }
 static Value wVolume(VM&, const Value* a, int) { lt_master_volume(NARG(0)); return Value::nil(); }
 static Value wSave(VM&, const Value* a, int) {
     std::string d = wick::getStr(a[1]);
@@ -106,7 +125,15 @@ static Value wTouchY(VM&, const Value*, int) { return Value::num(lt_touch_y()); 
 static Value wQuit(VM&, const Value*, int) { lt_quit(); return Value::nil(); }
 static Value wEscQuits(VM&, const Value* a, int) { lt_escape_quits(a[0].b ? 1 : 0); return Value::nil(); }
 static Value wTime(VM&, const Value*, int) { return Value::num(lt_time()); }
-static Value wScreenshot(VM&, const Value* a, int) { lt_screenshot(wick::getStr(a[0]).c_str()); return Value::nil(); }
+static Value wScreenshot(VM& vm, const Value* a, int) {
+    std::string out, err;
+    if (!lt::pathResolveScreenshot(g_dir, wick::getStr(a[0]), out, err)) {
+        wick::setError(vm, "screenshot refused: " + err);
+        return Value::nil();
+    }
+    lt_screenshot(out.c_str());
+    return Value::nil();
+}
 
 static bool registerLT(VM* vm, std::string& err) {
     struct Reg { const char* sig; wick::NativeFn fn; };
@@ -132,6 +159,7 @@ static bool registerLT(VM* vm, std::string& err) {
         {"sprite(num, num, num, num=1, num=1)", wSprite},
         {"sprite_ex(num, num, num, num=1, num=1, num=0, num=1, num=1, num=1, num=1)", wSpriteEx},
         {"sprite_uv(num, num, num, num, num, num, num, num, num)", wSpriteUV},
+        {"sprite_uv_tinted(num, num, num, num, num, num, num, num, num, num, num, num)", wSpriteUVTinted},
         {"print(str, num, num, num=1, num=1, num=1, num=1)", wPrint},
         {"key(str): bool", wKey},
         {"pressed(str): bool", wPressed},
@@ -144,6 +172,7 @@ static bool registerLT(VM* vm, std::string& err) {
         {"load_sound(str): num", wLoadSound},
         {"play(num, num=1, num=0): num", wPlay},
         {"stop(num)", wStop},
+        {"channel_volume(num, num)", wChanVol},
         {"volume(num)", wVolume},
         {"save(str, str): bool", wSave},
         {"load_save(str): str?", wLoadSave},
