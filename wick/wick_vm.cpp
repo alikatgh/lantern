@@ -1,6 +1,7 @@
 // wick_vm.cpp — the wick stack VM, mark/sweep GC (host-triggered at frame
 // boundaries), typed-native signature parsing, and the public embed API.
 #include "wick_internal.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -504,6 +505,81 @@ static Value nCheck(VM& vm, const Value* a, int) {
     return Value::nil();
 }
 
+// Bit operations accept exactly represented unsigned 32-bit integers. Check
+// before every C++ cast/shift: fractional, nonfinite and out-of-range doubles
+// must report Wick errors, never trigger host undefined behaviour.
+static bool unsignedArg(VM& vm, double n, uint32_t& out) {
+    if (!std::isfinite(n) || std::floor(n) != n || n < 0 || n > UINT32_MAX) {
+        setError(vm, "bit value must be an integer in 0..4294967295");
+        return false;
+    }
+    out = static_cast<uint32_t>(n);
+    return true;
+}
+static Value nBitAnd(VM& vm, const Value* a, int) {
+    uint32_t x, y;
+    if (!unsignedArg(vm, a[0].d, x) || !unsignedArg(vm, a[1].d, y)) return Value::nil();
+    return Value::num(x & y);
+}
+static Value nBitOr(VM& vm, const Value* a, int) {
+    uint32_t x, y;
+    if (!unsignedArg(vm, a[0].d, x) || !unsignedArg(vm, a[1].d, y)) return Value::nil();
+    return Value::num(x | y);
+}
+static Value nBitXor(VM& vm, const Value* a, int) {
+    uint32_t x, y;
+    if (!unsignedArg(vm, a[0].d, x) || !unsignedArg(vm, a[1].d, y)) return Value::nil();
+    return Value::num(x ^ y);
+}
+static Value nBitNot(VM& vm, const Value* a, int) {
+    uint32_t x;
+    if (!unsignedArg(vm, a[0].d, x)) return Value::nil();
+    return Value::num(static_cast<uint32_t>(~x));
+}
+static Value shiftBits(VM& vm, const Value* a, bool left) {
+    uint32_t x;
+    if (!unsignedArg(vm, a[0].d, x)) return Value::nil();
+    const double n = a[1].d;
+    if (!std::isfinite(n) || std::floor(n) != n || n < 0 || n > 31) {
+        setError(vm, "shift count must be an integer in 0..31");
+        return Value::nil();
+    }
+    const unsigned count = static_cast<unsigned>(n);
+    // Widen before shifting so overflow is explicitly discarded at 32 bits.
+    return Value::num(left ? static_cast<uint32_t>(uint64_t(x) << count) : x >> count);
+}
+static Value nBitShl(VM& vm, const Value* a, int) { return shiftBits(vm, a, true); }
+static Value nBitShr(VM& vm, const Value* a, int) { return shiftBits(vm, a, false); }
+static Value wrapInteger(VM& vm, double n, double modulus) {
+    if (!std::isfinite(n) || std::floor(n) != n || std::fabs(n) > 9007199254740991.0) {
+        setError(vm, "wrap value must be a safe integer (-9007199254740991..9007199254740991)");
+        return Value::nil();
+    }
+    double result = std::fmod(n, modulus);
+    if (result < 0) result += modulus;
+    return Value::num(result == 0 ? 0 : result);
+}
+static Value nU8(VM& vm, const Value* a, int) { return wrapInteger(vm, a[0].d, 256); }
+static Value nU16(VM& vm, const Value* a, int) { return wrapInteger(vm, a[0].d, 65536); }
+static Value formatBits(VM& vm, const Value* a, unsigned base, unsigned maxWidth) {
+    uint32_t x;
+    if (!unsignedArg(vm, a[0].d, x)) return Value::nil();
+    const double width = a[1].d;
+    if (!std::isfinite(width) || std::floor(width) != width || width < 1 || width > maxWidth) {
+        setError(vm, "format width must be an integer in 1.." + std::to_string(maxWidth));
+        return Value::nil();
+    }
+    std::string s;
+    do {
+        s.insert(s.begin(), "0123456789ABCDEF"[x % base]);
+        x /= base;
+    } while (x);
+    s.insert(0, static_cast<size_t>(std::max(0.0, width - s.size())), '0');
+    return makeStr(vm, s);
+}
+static Value nHex(VM& vm, const Value* a, int) { return formatBits(vm, a, 16, 8); }
+static Value nBin(VM& vm, const Value* a, int) { return formatBits(vm, a, 2, 32); }
+
 static void installBuiltins(VM* vm) {
     std::string e;
     addNative(vm, nullptr, "floor(num): num", nFloor, e);
@@ -519,6 +595,16 @@ static void installBuiltins(VM* vm) {
     addNative(vm, nullptr, "rand(): num", nRand, e);
     addNative(vm, nullptr, "srand(num)", nSrand, e);
     addNative(vm, nullptr, "check(bool, str)", nCheck, e);
+    addNative(vm, nullptr, "bit_and(num, num): num", nBitAnd, e);
+    addNative(vm, nullptr, "bit_or(num, num): num", nBitOr, e);
+    addNative(vm, nullptr, "bit_xor(num, num): num", nBitXor, e);
+    addNative(vm, nullptr, "bit_not(num): num", nBitNot, e);
+    addNative(vm, nullptr, "bit_shl(num, num): num", nBitShl, e);
+    addNative(vm, nullptr, "bit_shr(num, num): num", nBitShr, e);
+    addNative(vm, nullptr, "u8(num): num", nU8, e);
+    addNative(vm, nullptr, "u16(num): num", nU16, e);
+    addNative(vm, nullptr, "hex(num, num=1): str", nHex, e);
+    addNative(vm, nullptr, "bin(num, num=1): str", nBin, e);
     addConst(vm, nullptr, "pi", 3.14159265358979323846);
 }
 

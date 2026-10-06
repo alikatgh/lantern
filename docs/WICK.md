@@ -26,6 +26,7 @@ concretely worse without it.
 |---|---|---|
 | String indexing / iteration | KORA-on-lantern (`kora/lantern`) can't parse its ASCII tile maps in-game; the world is baked to number lists at build time by a Python tool. | Recorded, not yet admitted — baking is a clean static workaround. |
 | Structs / records | KORA kitchen props: five parallel lists. | **Admitted (flat `record`)** — named fields, `list<record>`, field get/set; no methods. |
+| Bits / register widths | Processor-building game: masks, ALU results, address rollover, register display (`games/bitlab`). | **Admitted (0.3)** — checked functions and prefixed literals. |
 | Closures / first-class fns | No shipped program has paid a price yet. | Candidate, no evidence. |
 
 ## Why (each Lua disadvantage, fixed by design)
@@ -113,7 +114,22 @@ work exactly as with Lua — compile errors show file:line on screen.
 - `src/wick_host.cpp` — the typed `lt.*` bindings + game host
 - `games/template_wick/` — the starter, in wick
 
-## Scope honesty (v0.2 surface)
+## Bits and register widths (v0.3)
+
+Hexadecimal `0xFF` and binary `0b1010` literals accept unsigned 32-bit
+integers. `bit_and`, `bit_or`, `bit_xor`, `bit_not`, `bit_shl`, and `bit_shr`
+operate on checked unsigned 32-bit values; shifts require counts 0..31.
+Fractions, nonfinite values, and out-of-domain values produce a runtime
+error, never an unchecked host cast. `u8(n)` and `u16(n)` wrap safe integers
+(including negatives) modulo 256 and 65536. `hex(n, width=1)` and
+`bin(n, width=1)` pad without truncation; widths are 1..8 and 1..32.
+
+These are functions on `num`, not new numeric types or operators. Rename
+user functions colliding with these ten new built-in call names. See
+[the full contract](https://learn.wick.aulenor.com/bits/) and run
+`./build/lantern games/bitlab` for the processor workbench.
+
+## Scope honesty (v0.3 surface)
 
 **In:** optionals, locals-only, typed `lt.*`, frame-boundary GC, deterministic
 `rand`, flat **records** + `list<record>`, path-sandboxed loads.
@@ -123,4 +139,4 @@ imports, string indexing/methods, varargs, branded handle types (`tex`/`snd`).
 Every one of those is addable behind the same typed front end — when a game
 pays the cost. The bar: run real lantern games (Lantern Night, KORA), catch
 the bug classes Lua couldn't, stay small enough to read in an afternoon
-(~2.1k lines today).
+(a small dependency-free implementation).

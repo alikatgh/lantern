@@ -1,0 +1,91 @@
+// Wick 0.3: a register/ALU workbench, not a complete 8080 emulator.
+// Left/right choose A or B; up/down change the byte; Z changes operation.
+// Touch a bit to toggle it. The new game will grow from these primitives.
+record Register { value: num, label: str }
+let regs: list<Register> = []
+push(regs, Register { value: 0xFF, label: "A" })
+push(regs, Register { value: 0x01, label: "B" })
+let selected = 0
+let op = 0
+let names = ["ADD", "AND", "XOR"]
+let result = 0
+let carry = false
+let zero = true
+let sign = false
+let parity = true
+let aux = false
+let pc = 0xFFFF
+
+fn evaluate() {
+  let a = regs[0].value
+  let b = regs[1].value
+  let wide = a + b
+  if op == 1 { wide = bit_and(a, b) }
+  if op == 2 { wide = bit_xor(a, b) }
+  result = u8(wide)
+  carry = op == 0 and wide > 0xFF
+  // 8080 ADD auxiliary carry; ANA uses bit 3 of either input; XRA clears it.
+  aux = (op == 0 and bit_and(a, 0xF) + bit_and(b, 0xF) > 0xF) or (op == 1 and bit_and(bit_or(a, b), 8) != 0)
+  zero = result == 0
+  sign = bit_and(result, 0x80) != 0
+  let count = 0
+  for i in 0..8 { count = count + bit_and(bit_shr(result, i), 1) }
+  parity = count % 2 == 0
+}
+evaluate()
+check(result == 0 and carry and zero and aux and parity, "FF + 01 flags")
+check(u16(pc + 1) == 0, "16-bit PC rollover")
+
+fn update(dt: num) {
+  if lt.pressed("left") or lt.pressed("right") { selected = 1 - selected }
+  if lt.pressed("up") { regs[selected].value = u8(regs[selected].value + 1) }
+  if lt.pressed("down") { regs[selected].value = u8(regs[selected].value - 1) }
+  if lt.pressed("z") { op = (op + 1) % 3 }
+  if lt.touch_pressed() {
+    let tx = lt.touch_x()
+    let ty = lt.touch_y()
+    for row in 0..2 {
+      if ty >= 54 + row * 48 and ty < 78 + row * 48 and tx >= 132 and tx < 388 {
+        selected = row
+        let bit = 7 - floor((tx - 132) / 32)
+        regs[row].value = bit_xor(regs[row].value, bit_shl(1, bit))
+      }
+    }
+    if ty >= 150 and ty < 176 { op = (op + 1) % 3 }
+  }
+  evaluate()
+}
+
+fn bit_row(value: num, y: num) {
+  for i in 0..8 {
+    let on = bit_and(bit_shr(value, 7 - i), 1) == 1
+    let x = 132 + i * 32
+    if on { lt.rect(x, y, 28, 24, 0.18, 0.63, 0.49) }
+    else { lt.rect(x, y, 28, 24, 0.15, 0.19, 0.25) }
+    lt.print(str(bit_and(bit_shr(value, 7 - i), 1)), x + 10, y + 8)
+  }
+}
+fn flag(label: str, value: bool, x: num) {
+  if value { lt.print(label, x, 186, 0.40, 0.94, 0.66) }
+  else { lt.print(label, x, 186, 0.35, 0.40, 0.48) }
+}
+fn draw() {
+  lt.clear(0.05, 0.07, 0.10)
+  lt.print("BIT LAB / WICK 0.3", 12, 12, 0.9, 0.94, 1)
+  lt.print("BUILDING BLOCKS FOR AN 8080", 12, 28, 0.5, 0.65, 0.78)
+  for i in 0..2 {
+    let y = 54 + i * 48
+    if selected == i { lt.rect(8, y, 3, 24, 0.4, 0.94, 0.66) }
+    lt.print(regs[i].label + "  0x" + hex(regs[i].value, 2), 20, y + 8)
+    bit_row(regs[i].value, y)
+  }
+  lt.print(names[op] + " 0x" + hex(result, 2), 20, 158, 1, 0.78, 0.4)
+  bit_row(result, 150)
+  flag("CY", carry, 20)
+  flag("Z", zero, 84)
+  flag("S", sign, 132)
+  flag("P", parity, 180)
+  flag("AC", aux, 228)
+  lt.print("PC FFFF + 1 = " + hex(u16(pc + 1), 4), 12, 204, 0.5, 0.65, 0.78)
+  lt.print("ARROWS: BYTE  Z: OP  TOUCH: TOGGLE BIT", 12, 224, 0.68, 0.75, 0.82)
+}
