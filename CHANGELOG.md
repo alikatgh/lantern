@@ -20,6 +20,11 @@ while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
   boundary/error cases and reload alongside existing engine regression tests.
 - Book edition 0.3, reference, feature ledger and release blog updated together.
 
+### Build
+
+- iOS build script now links the shared path-sandbox implementation used by
+  the Wick host, fixing previously unresolved symbols.
+
 ### Compatibility
 
 - num remains double; no new operators, types or dependencies.
