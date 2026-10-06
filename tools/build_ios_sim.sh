@@ -27,7 +27,7 @@ rm -rf "$APP"
 mkdir -p "$OUT/obj" "$APP"
 
 echo "== compiling engine core =="
-for f in gfx obj audio engine; do
+for f in gfx obj audio engine path_sandbox; do
     xcrun -sdk $SDK clang++ "${CXXFLAGS[@]}" -c "src/$f.cpp" \
         -o "$OUT/obj/$f.o"
 done

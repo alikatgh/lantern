@@ -108,6 +108,46 @@ struct Compiler {
         if (pos >= src.size()) return t;
         char c = src[pos];
         if (isdigit((unsigned char)c)) {
+            // Hardware constants stay exact in num (double). Limit prefixed
+            // integers to the same unsigned 32-bit domain as the bit natives.
+            if (c == '0' && pos + 1 < src.size() &&
+                (src[pos + 1] == 'x' || src[pos + 1] == 'X' ||
+                 src[pos + 1] == 'b' || src[pos + 1] == 'B')) {
+                const unsigned base = (src[pos + 1] == 'x' ||
+                                       src[pos + 1] == 'X') ? 16 : 2;
+                pos += 2;
+                const size_t start = pos;
+                uint32_t value = 0;
+                while (pos < src.size() &&
+                       (isalnum((unsigned char)src[pos]) || src[pos] == '_')) {
+                    const char d = src[pos++];
+                    const unsigned digit = d >= '0' && d <= '9' ? d - '0' :
+                        d >= 'a' && d <= 'f' ? d - 'a' + 10 :
+                        d >= 'A' && d <= 'F' ? d - 'A' + 10 : 16;
+                    if (digit >= base) {
+                        fail("invalid digit in integer literal", t.line);
+                        return t;
+                    }
+                    if (value > (UINT32_MAX - digit) / base) {
+                        fail("integer literal exceeds 32 bits", t.line);
+                        return t;
+                    }
+                    value = value * base + digit;
+                }
+                if (pos == start) {
+                    fail("integer literal needs digits after prefix", t.line);
+                    return t;
+                }
+                // A range is legal; a fractional prefixed literal is not.
+                if (pos < src.size() && src[pos] == '.' &&
+                    (pos + 1 == src.size() || src[pos + 1] != '.')) {
+                    fail("integer literal cannot have a fractional part", t.line);
+                    return t;
+                }
+                t.kind = T_NUM;
+                t.num = value;
+                return t;
+            }
             // scan by hand so `0..40` stays NUM DOTDOT NUM (stod would
             // greedily eat "0." and orphan the range operator)
             size_t s = pos;

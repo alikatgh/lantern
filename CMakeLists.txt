@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(lantern CXX C)
+project(lantern VERSION 0.8.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -62,6 +62,9 @@ target_compile_options(lantern_touchdemo PRIVATE -Wall -Wextra)
 
 # ABI-level touch test: injects SDL events, asserts mapping + edges.
 enable_testing()
+add_executable(wick_bits_test tests/wick_bits_test.cpp)
+target_link_libraries(wick_bits_test wick)
+add_test(NAME wick_bits COMMAND wick_bits_test)
 add_executable(lantern_touch_test tests/touch_test.c)
 set_target_properties(lantern_touch_test PROPERTIES C_STANDARD 99)
 target_include_directories(lantern_touch_test PRIVATE ${SDL2_INCLUDE_DIRS})
@@ -87,3 +90,10 @@ add_test(NAME package
 add_test(NAME path_sandbox
          COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/path_sandbox_test.sh
                       $<TARGET_FILE:lantern>)
+
+
+# Run the release example through the real host, including its flag assertions.
+add_test(NAME wick_bitlab COMMAND ${CMAKE_COMMAND} -E env
+    LANTERN_FIXED_DT=1 LANTERN_SHOT_FRAME=2
+    LANTERN_SHOT=${CMAKE_CURRENT_BINARY_DIR}/bitlab
+    $<TARGET_FILE:lantern> ${CMAKE_CURRENT_SOURCE_DIR}/games/bitlab)

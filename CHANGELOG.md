@@ -4,6 +4,33 @@ All notable changes to the engine and its language. Format inspired by
 [Keep a Changelog](https://keepachangelog.com/); versioning is informal
 while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
 
+## [0.8.0] — 2026-10-06
+
+### Wick 0.3.0
+
+- Hexadecimal/binary integer literals (0x/0b), checked through 32 bits.
+- Typed bit_and/or/xor/not/shl/shr functions with checked unsigned inputs
+  and shift counts; no C++ undefined shifts or float-to-int conversion.
+- Explicit u8/u16 wrapping for safe integers, including negative values.
+- hex/bin display helpers: uppercase hex, minimum-width zero padding,
+  no truncation, checked width and value domains.
+- Bit Lab: a Wick register/ALU workbench with bit toggles, ADD/AND/XOR,
+  processor flags and program-counter rollover. Not a full CPU emulator.
+- Standalone compiler/VM tests exercise byte identities, 64 Ki memory,
+  boundary/error cases and reload alongside existing engine regression tests.
+- Book edition 0.3, reference, feature ledger and release blog updated together.
+
+### Build
+
+- iOS build script now links the shared path-sandbox implementation used by
+  the Wick host, fixing previously unresolved symbols.
+
+### Compatibility
+
+- num remains double; no new operators, types or dependencies.
+- The ten new built-in call names reject same-named user function declarations; rename
+  collisions. Existing game/package formats and callbacks are unchanged.
+
 ## [0.7] — 2026-07-14
 
 ### wick language

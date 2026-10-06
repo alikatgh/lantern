@@ -79,6 +79,10 @@ cannot write arbitrary host paths. Store packages are wick-only: a wick
 game's only exits are the typed `lt.*` natives. Sell yours on the
 [lantern store](https://famemu.aulenor.com/store/) — developers keep 85%.
 
+**New: Wick 0.3 / Lantern 0.8.0** adds checked bit operations, hex/binary
+literals, byte/word wrapping and register displays. Try
+`./build/lantern games/bitlab`; see [the changelog](CHANGELOG.md).
+
 ## wick — lantern's own language
 
 lantern ships its own scripting language: **wick** — Lua's size and feel
@@ -87,7 +91,7 @@ with the sharp edges designed out. Statically typed with `T?` optionals
 **flat records** (`record Prop { x: num, y: num }`), locals-only, 0-based
 indexing, strict bool conditions, typed engine bindings, deterministic
 `rand()`, and GC that runs only between frames. The compiler + VM are
-~2.1k lines in `wick/`, zero dependencies, same zlib license.
+a small implementation in `wick/`, zero dependencies, same zlib license.
 
 A game is a folder with `main.wick` (the host prefers it over `main.lua`):
 

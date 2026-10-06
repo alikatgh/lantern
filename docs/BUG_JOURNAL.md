@@ -76,3 +76,9 @@ before reproducing anything.
 - Cause: screenshot read the FBO before endFrame(), where the sprite batch flushes.
 - Fix: capture AFTER endFrame() (the FBO retains the completed frame post-blit).
 - Lesson: a "verify by frames" hook must capture at the same pipeline point the player sees.
+
+## 2026-10-06 — iOS host link failure
+- Symptom: hosted iOS build failed with missing pathResolveUnder/pathResolveScreenshot symbols.
+- Cause: build_ios_sim.sh omitted path_sandbox.cpp after the host adopted shared path resolution.
+- Fix: include path_sandbox in the engine compilation list.
+- Verification: desktop tests pass; hosted iOS compile/link is the release gate.

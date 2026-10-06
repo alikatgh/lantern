@@ -1,0 +1,6 @@
+id=com.aulenor.wick-bitlab
+title=Bit Lab
+version=0.3.0
+engine=0.8
+author=the lantern engine authors
+entry=main.wick
