@@ -91,3 +91,9 @@ add_test(NAME path_sandbox
          COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/path_sandbox_test.sh
                       $<TARGET_FILE:lantern>)
 
+
+# Run the release example through the real host, including its flag assertions.
+add_test(NAME wick_bitlab COMMAND ${CMAKE_COMMAND} -E env
+    LANTERN_FIXED_DT=1 LANTERN_SHOT_FRAME=2
+    LANTERN_SHOT=${CMAKE_CURRENT_BINARY_DIR}/bitlab
+    $<TARGET_FILE:lantern> ${CMAKE_CURRENT_SOURCE_DIR}/games/bitlab)

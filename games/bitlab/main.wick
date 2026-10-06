@@ -35,6 +35,19 @@ fn evaluate() {
 evaluate()
 check(result == 0 and carry and zero and aux and parity, "FF + 01 flags")
 check(u16(pc + 1) == 0, "16-bit PC rollover")
+regs[0].value = 0x08
+regs[1].value = 0x00
+op = 1
+evaluate()
+check(result == 0 and aux and not carry, "8080 ANA auxiliary carry")
+regs[0].value = 0x80
+op = 2
+evaluate()
+check(result == 0x80 and sign and not parity and not aux and not carry, "XRA flags")
+regs[0].value = 0xFF
+regs[1].value = 0x01
+op = 0
+evaluate()
 
 fn update(dt: num) {
   if lt.pressed("left") or lt.pressed("right") { selected = 1 - selected }
