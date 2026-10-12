@@ -4,6 +4,28 @@ All notable changes to the engine and its language. Format inspired by
 [Keep a Changelog](https://keepachangelog.com/); versioning is informal
 while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
 
+## [Unreleased]
+
+### Renderer
+
+- Opt-in `LANTERN_RENDER_SCALE=1..4` sets physical raster density at startup.
+  Default 1 remains 400×240; 2, 3 and 4 render at 800×480, 1200×720 and
+  1600×960. Game coordinates, logical input, camera and atlas UV contracts
+  stay unchanged. Invalid values fail before platform/framebuffer allocation.
+- 32-bit BI_BITFIELDS BMPs with an explicit alpha mask (including BMP V4)
+  preserve straight RGBA and legitimate magenta. Bilinear filtering weights
+  RGB by alpha, then returns straight color for one compositing operation;
+  fully transparent hidden RGB cannot fringe painted edges.
+- Opaque filtering keeps its exact arithmetic; nearest sampling is unchanged.
+  Alpha-less 24-bit/BGRX BMPs retain legacy magenta color-key behavior and
+  atlas taps stay within their UV cell. Existing 2D coverage ≤0.004 rejection
+  remains in place.
+- CPU regression tests cover bounded density/stride, invalid settings,
+  flips/rotation/UVs, untouched opaque-frame parity, explicit alpha, legacy
+  keys and hidden-RGB invariance on dark/light backgrounds at scales 1–4.
+  Native SDL/Retina and iOS/Metal presentation, touch mapping and frame cadence
+  still need platform validation; no native parity is claimed for this change.
+
 ## [0.8.0] — 2026-10-06
 
 ### Wick 0.3.0

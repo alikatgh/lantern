@@ -53,8 +53,18 @@ lt::Mat4 trs(float x, float y, float z, float rx, float ry, float rz,
 extern "C" {
 
 int lt_boot(const char* title, int window_scale) {
+    // Parse before any platform/frame allocation. Only a single ASCII 1..4
+    // is accepted: empty, whitespace, signs, decimals and suffixes fail closed.
+    int renderScale = 1;
+    if (const char* value = std::getenv("LANTERN_RENDER_SCALE")) {
+        if (value[0] < '1' || value[0] > '4' || value[1] != '\0') {
+            std::fprintf(stderr, "LANTERN_RENDER_SCALE must be exactly 1, 2, 3 or 4\n");
+            return 0;
+        }
+        renderScale = value[0] - '0';
+    }
     if (!lt::platInit(title, window_scale)) return 0;
-    if (!E.gfx.init()) {
+    if (!E.gfx.init(renderScale)) {
         std::fprintf(stderr, "gfx init failed\n");
         lt::platShutdown();
         return 0;
@@ -113,7 +123,8 @@ void lt_frame_end(void) {
         E.quit = true; // verification run: capture, then exit the loop
     }
     E.frame++;
-    lt::platPresent(E.gfx.framebuffer());
+    lt::platPresent(E.gfx.framebuffer(), E.gfx.framebufferWidth(),
+                    E.gfx.framebufferHeight(), E.gfx.framebufferPitch());
 }
 
 void lt_run(lt_update_fn update, lt_draw_fn draw) {

@@ -1,19 +1,19 @@
 # lantern — a 3DS-class 2D/3D game engine
 
 Make games that look and feel like the Nintendo 3DS generation: low-poly 3D
-with per-vertex lighting, pixel-perfect 2D, one 400×240 screen. The
+with per-vertex lighting, pixel-perfect 2D, one 400×240 logical screen. The
 constraints are the aesthetic — nothing here is a filter.
 
 **The renderer is ours, all the way down.** No GPU API: every pixel of the
-400×240 frame is computed by the engine's own software rasterizer —
+frame is computed by the engine's own software rasterizer —
 transform, clipping, perspective-correct rasterization, depth, bilinear
 sampling, lighting, fog, blending. SDL is OS plumbing only (window, input,
-audio device). The rasterizer is bit-identical everywhere; run with
-`LANTERN_FIXED_DT=1` and whole game sessions become deterministic too —
-that combination is what lets the engine screenshot-test itself in CI.
+audio device). Run with `LANTERN_FIXED_DT=1` for deterministic frame steps;
+the real CPU framebuffer is what the engine screenshot-tests in CI.
 
 - **2D and 3D in the same frame**: depth-tested gouraud-lit meshes, then
-  batched sprites/text composited on top, all at 400×240, integer-upscaled.
+  batched sprites/text composited on top. The default framebuffer is 400×240;
+  opt-in density renders up to 1600×960 while game coordinates stay fixed.
 - **Small, learnable API** (~40 calls) in two flavors: **Lua** (no compiler
   needed — a game is a folder with `main.lua`) and a **C ABI**
   ([include/lantern.h](include/lantern.h)) for C/C++ games.
@@ -26,7 +26,7 @@ that combination is what lets the engine screenshot-test itself in CI.
   shadows** (`lt_shadow`) and **keyframe mesh animation**
   (`lt_draw_mesh_lerp`, Quake-style tweening).
 - 2D: sprites (rotation/tint/flip), atlas sub-rects for tilemaps, a built-in
-  8×8 font. BMP textures with magenta color-key transparency.
+  8×8 font. BMP textures support explicit painted alpha and legacy magenta keys.
 - **Audio**: 48 kHz 16-channel WAV mixer with looping.
 - **Input**: keyboard + game controller merged into one namespace, held and
   edge-triggered, plus rumble; **single-point touch, 3DS-style** (mouse on
@@ -35,15 +35,15 @@ that combination is what lets the engine screenshot-test itself in CI.
   Metal-presented (the rasterizer stays ours), UITouch, AVAudio, and
   GCController gamepads. `tools/build_ios_sim.sh [game_dir]` builds a
   simulator app with a **wick game bundled** (Lantern Night by default —
-  wick has no JIT, so it's iOS-legal by construction); frames render
-  byte-identical to macOS.
+  wick has no JIT, so it's iOS-legal by construction). The new density/alpha
+  paths still need native iOS presentation/input validation.
 - Headroom to spare: ~10k lit mesh draw calls fit the 60 fps budget
   (`games/stress/`) — a real 3DS-class scene needs a few hundred.
 - **The dev loop**: save `main.lua` while the engine runs and it hot-reloads;
   a Lua error shows an in-engine error screen (file:line) instead of
   crashing — fix the file, save, keep playing.
 - Built-in verification: `LANTERN_SHOT=/path/prefix ./lantern <game>` runs
-  60 frames (override with `LANTERN_SHOT_FRAME=N`), saves the real 400×240
+  60 frames (override with `LANTERN_SHOT_FRAME=N`), saves the physical
   framebuffer as BMP, exits — screenshot your game in CI.
 
 ## Build & run
@@ -57,6 +57,42 @@ cmake -B build && cmake --build build -j8
 ./build/lantern games/template           # minimal starter
 ./build/lantern_hello_c                  # the same engine from pure C
 ```
+
+## Render density and painted transparency
+
+`LANTERN_RENDER_SCALE` is read once at engine startup. Omit it for the existing
+400×240 framebuffer, or set exactly `1`, `2`, `3` or `4` for 400×240, 800×480,
+1200×720 or 1600×960 physical pixels. Empty, padded, signed and out-of-range
+values are rejected before platform/framebuffer allocation.
+
+```sh
+LANTERN_RENDER_SCALE=2 ./build/lantern games/room
+```
+
+Game/UI coordinates and logical input remain 400×240; camera, collision logic
+and atlas UVs do not change. More density can expose detail in higher-resolution
+assets; it does not create missing source detail. Screenshots use the physical
+dimensions. SDL and iOS presentation receive that physical size and pitch, but
+native SDL/Retina, iOS/Metal, touch mapping and frame cadence need platform
+validation for this increment. CPU regression results do not establish those
+native behaviors.
+
+For painted textures, use a 32-bit BI_BITFIELDS BMP with an explicit alpha mask,
+such as BMP V4, containing straight RGBA. Every color is retained, including
+opaque magenta. Bilinear sampling filters premultiplied RGB and alpha, then
+returns straight RGB to the existing compositor so alpha is applied once.
+Fully transparent RGB values cannot color the edge. Opaque sampling retains
+the original arithmetic, nearest sampling is unchanged, and atlas samples
+remain clamped to their selected cell. The existing 2D coverage cutoff of
+0.004 remains: alpha 1/255 survives loading/sampling but is below that cutoff.
+
+24-bit BMPs and 32-bit BGRX/BITFIELDS BMPs without an alpha mask keep the legacy
+pure-magenta key and edge bleed. Existing games default to density 1.
+
+Python 3 is needed for the renderer regression driver. With the normal build,
+run `ctest --test-dir build -L renderer --output-on-failure`. The tests generate
+synthetic fixtures, use the real BMP loader and software rasterizer and
+replace OS presentation/input with deterministic stubs; no game art is needed.
 
 **Lantern Night** (`games/showcase/`, ~200 lines of Lua) is the proof the API
 holds together as a game: the four point lights are the mechanic (keep the
@@ -139,12 +175,12 @@ a 1:1 `lt_*` twin in [include/lantern.h](include/lantern.h) for C games
 
 ## Rules of the road
 
-- 400×240 is inviolable — there is no way to render at window resolution,
-  and that's the point.
+- 400×240 is the logical screen contract. Physical density is bounded to 1–4
+  and chosen at startup; arbitrary window-resolution rendering is unsupported.
 - Textures are BMP, **bilinear-filtered** (the real 3DS look; the built-in
-  font and the final integer upscale stay nearest). Pure magenta
-  (255,0,255) is transparent, with automatic edge bleed so filtering never
-  fringes. Keep them small (≤256×256 in spirit).
+  font and the final integer upscale stay nearest). Explicit-alpha BMPs keep
+  all RGBA colors; alpha-less legacy images key pure magenta (255,0,255).
+  Keep assets appropriate for the selected density and memory budget.
 - Lighting is per-vertex: tessellate ground planes (`lt.plane(12)`) if you
   want round light pools; keep meshes coarse if you want the faceted look.
 

@@ -1,5 +1,5 @@
 // platform_ios.mm — the iOS/iPadOS backend. Implements platform.hpp:
-// Metal presentation of the 400x240 frame (integer scale, letterboxed),
+// Metal presentation with a logical 400x240 viewport (integer scale, letterboxed),
 // UITouch input (forwarded by the host via platform_ios.h), the audio
 // device (AVAudioSourceNode pulling our mixer), save paths, time.
 // NO rendering happens here — the frame arrives fully rasterized from
@@ -131,13 +131,30 @@ void platShutdown() {
 // UIKit pumps its own events; quit is not a thing an iOS game initiates.
 bool platPoll() { return true; }
 
-void platPresent(const uint8_t* fb) {
+void platPresent(const uint8_t* fb, int width, int height, int pitch) {
     if (!g_queue || !g_layer) return;
+    if (!fb || width < SCREEN_W || width > SCREEN_W * 4 ||
+        width % SCREEN_W || height != SCREEN_H * (width / SCREEN_W) ||
+        pitch != width * 4) {
+        std::fprintf(stderr, "platPresent: invalid bounded framebuffer layout\n");
+        return;
+    }
     @autoreleasepool {
-        [g_frameTex replaceRegion:MTLRegionMake2D(0, 0, SCREEN_W, SCREEN_H)
+        if ((int)g_frameTex.width != width || (int)g_frameTex.height != height) {
+            MTLTextureDescriptor* td = [MTLTextureDescriptor
+                texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                             width:width height:height mipmapped:NO];
+            id<MTLTexture> next = [g_dev newTextureWithDescriptor:td];
+            if (!next) {
+                std::fprintf(stderr, "Metal HD texture allocation failed\n");
+                return;
+            }
+            g_frameTex = next;
+        }
+        [g_frameTex replaceRegion:MTLRegionMake2D(0, 0, width, height)
                       mipmapLevel:0
                         withBytes:fb
-                      bytesPerRow:SCREEN_W * 4];
+                      bytesPerRow:pitch];
         id<CAMetalDrawable> drawable = [g_layer nextDrawable];
         if (!drawable) return; // layout not ready yet: skip the present
         int dw = (int)g_layer.drawableSize.width;

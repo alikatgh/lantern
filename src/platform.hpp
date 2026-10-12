@@ -23,7 +23,9 @@ struct PlatformTouch {
 bool platInit(const char* title, int windowScale);
 void platShutdown();
 bool platPoll();                       // pump events; false = quit requested
-void platPresent(const uint8_t* fb);   // 400x240 RGBA top-down, integer-scale
+// Physical RGBA top-down target; logical input remains 400x240. Width is
+// 400*s, height 240*s and pitch width*4, with bounded integer density s=1..4.
+void platPresent(const uint8_t* fb, int width, int height, int pitch);
 double platTime();                     // monotonic seconds since platInit
 int platInputDown(const char* name);   // named buttons (see lantern.h)
 int platGamepadConnected();
