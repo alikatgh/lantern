@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 project(lantern VERSION 0.8.0 LANGUAGES CXX C)
 
+# Validate the selected native ABI before looking for platform dependencies.
+include(cmake/WickHostBits.cmake)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -36,6 +39,7 @@ add_library(wick STATIC
     wick/wick_front.cpp
     wick/wick_vm.cpp)
 target_include_directories(wick PUBLIC wick)
+target_compile_definitions(wick PUBLIC WICK_HOST_BITS=${WICK_HOST_BITS})
 target_compile_options(wick PRIVATE -Wall -Wextra)
 
 # The bundled host: `lantern <game_dir | game.lant>` runs main.wick if
@@ -132,6 +136,19 @@ add_test(NAME wick_check_cli
     COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_test.py
         --binary $<TARGET_FILE:lantern> --scratch ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(wick_check_api wick_check_cli PROPERTIES TIMEOUT 30 LABELS check)
+
+# Native width, standalone embed-header and non-executing build-info contract.
+add_executable(wick_host_bits_test tests/wick_host_bits_test.cpp)
+target_link_libraries(wick_host_bits_test wick)
+target_compile_definitions(wick_host_bits_test PRIVATE
+    WICK_TEST_EXPECTED_HOST_BITS=${WICK_HOST_BITS})
+target_compile_options(wick_host_bits_test PRIVATE -Wall -Wextra)
+add_test(NAME wick_host_bits
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_bits_test.py
+        --binary $<TARGET_FILE:lantern> --probe $<TARGET_FILE:wick_host_bits_test>
+        --source ${CMAKE_CURRENT_SOURCE_DIR} --scratch ${CMAKE_CURRENT_BINARY_DIR}
+        --cmake ${CMAKE_COMMAND} --cache ${CMAKE_CURRENT_BINARY_DIR}/CMakeCache.txt)
+set_tests_properties(wick_host_bits PROPERTIES TIMEOUT 90 LABELS host)
 
 # Native audio signal/loader tests use the real mixer, ABI and Wick registry,
 # replacing only the OS backend. No SDL window/audio device or AI media needed.
