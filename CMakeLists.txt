@@ -123,6 +123,20 @@ add_test(NAME renderer_painted_alpha
         --kind painted_alpha --binary $<TARGET_FILE:lantern_painted_alpha_test>
         --scratch ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(renderer_hd renderer_painted_alpha PROPERTIES TIMEOUT 90 LABELS renderer)
+add_executable(lantern_native_renderer_test tests/native_renderer_test.cpp)
+target_include_directories(lantern_native_renderer_test PRIVATE src)
+target_link_libraries(lantern_native_renderer_test lantern_core)
+target_compile_options(lantern_native_renderer_test PRIVATE -Wall -Wextra)
+add_test(NAME renderer_native COMMAND lantern_native_renderer_test)
+set_tests_properties(renderer_native PROPERTIES TIMEOUT 60 LABELS renderer)
+add_executable(lantern_axis_renderer_test tests/axis_renderer_test.cpp)
+target_include_directories(lantern_axis_renderer_test PRIVATE src)
+target_compile_options(lantern_axis_renderer_test PRIVATE -Wall -Wextra)
+add_test(NAME renderer_axis
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/renderer_test.py
+        --kind axis --binary $<TARGET_FILE:lantern_axis_renderer_test>
+        --scratch ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(renderer_axis PROPERTIES TIMEOUT 90 LABELS renderer)
 
 # Compile-only API and CLI checks do not initialize SDL/audio or execute Wick.
 add_executable(wick_host_header_test tests/wick_host_header_test.cpp)

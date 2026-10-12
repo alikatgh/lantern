@@ -6,6 +6,20 @@ while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
 
 ## [Unreleased]
 
+### Experimental native rendering and physical framebuffer APIs
+
+- Accept strict `LANTERN_RENDER_SCALE=1..10`, preserving the unset 400×240 default.
+  Add mutually exclusive `LANTERN_RENDER_NATIVE=1` using SDL/Metal backing pixels,
+  bounded 4000×2400 aspect-preserving fit, resize updates and upfront allocation.
+- Add typed C/Wick physical width, height and native-mode getters, plus additive
+  `native-render-v1` build-info capability metadata. Logical coordinates stay
+  400×240. No new numeric width, game physics or source-art detail is implied.
+- Optimize axis-aligned 2D rectangles while retaining exact legacy pixels and
+  transformed-draw fallback. Differential and failure/resize tests cover both.
+- Keep native rendering experimental: representative 3600×2160 CPU work measured
+  181 ms before upload. Native display cadence and device behavior need review.
+
+
 ### Native host width
 
 - Default Lantern/Wick to a 64-bit native pointer ABI. `WICK_HOST_BITS=32`

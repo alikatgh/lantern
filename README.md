@@ -123,13 +123,29 @@ separate checks; synthetic width-policy tests do not establish those results.
 ## Render density and painted transparency
 
 `LANTERN_RENDER_SCALE` is read once at engine startup. Omit it for the existing
-400×240 framebuffer, or set exactly `1`, `2`, `3` or `4` for 400×240, 800×480,
-1200×720 or 1600×960 physical pixels. Empty, padded, signed and out-of-range
+400×240 framebuffer, or set a decimal integer from `1` through `10` for
+400×240 through 4000×2400 physical pixels. Empty, padded, signed and out-of-range
 values are rejected before platform/framebuffer allocation.
 
 ```sh
 LANTERN_RENDER_SCALE=2 ./build/lantern games/room
 ```
+
+Alternatively, `LANTERN_RENDER_NATIVE=1` queries actual backing pixels each frame
+and fits the logical 5:3 view within a bounded 4000×2400 framebuffer. Do not set
+`LANTERN_RENDER_SCALE` together with native mode. Resize and odd output sizes
+retain aspect ratio; above the bound, presentation scales the bounded image.
+The C getters `lt_render_width`, `lt_render_height`, `lt_render_native` and Wick
+`lt.render_width()`, `lt.render_height()`, `lt.render_native()` expose the actual
+framebuffer dimensions and mode, with zero dimensions before boot.
+
+Native mode is experimental: the measured representative CPU scene takes about
+181 ms at 3600×2160 before upload. It is not a 60 FPS or GPU rendering feature.
+The axis-aligned fast path preserves existing sampling and alpha semantics,
+while transformed draws use the reference triangle path. CPU framebuffer
+capacity is bounded to 76.8 MB and reserved once; allocation failure aborts boot.
+`lantern --build-info --json` adds `render_capabilities: ["native-render-v1"]`
+without changing its v1 schema. This reports compiled support, not platform QA.
 
 Game/UI coordinates and logical input remain 400×240; camera, collision logic
 and atlas UVs do not change. More density can expose detail in higher-resolution
@@ -237,7 +253,7 @@ a 1:1 `lt_*` twin in [include/lantern.h](include/lantern.h) for C games
 
 ## Rules of the road
 
-- 400×240 is the logical screen contract. Physical density is bounded to 1–4
+- 400×240 is the logical screen contract. Physical density is bounded to 1–10
   and chosen at startup; arbitrary window-resolution rendering is unsupported.
 - Textures are BMP, **bilinear-filtered** (the real 3DS look; the built-in
   font and the final integer upscale stay nearest). Explicit-alpha BMPs keep

@@ -568,6 +568,7 @@ static int buildInfoCLI(int argc, char** argv) {
     std::printf("{\"schema\":\"lantern.build-info.v1\",\"ok\":true,"
                 "\"host_bits\":%zu,\"target_bits\":%u,\"architecture\":\"%s\","
                 "\"num\":{\"storage_bits\":%zu,\"mantissa_bits\":%d,\"radix\":%d},"
+                "\"render_capabilities\":[\"native-render-v1\"],"
                 "\"diagnostics\":[]}\n",
                 sizeof(void*) * CHAR_BIT, wick::HOST_BITS, architecture,
                 sizeof(double) * CHAR_BIT, std::numeric_limits<double>::digits,

@@ -31,6 +31,7 @@ void operator delete[](void* p, std::size_t) noexcept { ::operator delete(p); }
 namespace {
 int assertions = 0, starts = 0, stops = 0;
 bool deviceAvailable = true;
+int renderOutputW = 1200, renderOutputH = 720;
 void expect(bool yes, const std::string& message) {
     ++assertions;
     if (!yes) throw std::runtime_error(message);
@@ -305,6 +306,7 @@ void wickChecks(const std::filesystem::path& dir) {
     reset();
     run(R"(
 check(lt.SFX == 0 and lt.MUSIC == 1 and lt.SPEECH == 2, "named buses")
+check(lt.W == 400 and lt.H == 240 and lt.render_width() == 0 and lt.render_height() == 0 and not lt.render_native(), "physical rendering info before boot")
 check(lt.try_load_sound("missing.wav") == -1, "optional missing media")
 check(lt.try_load_sound("bad.wav") == -1, "optional invalid media")
 let sound = lt.load_sound("constant.wav")
@@ -405,11 +407,39 @@ void concurrencyChecks(const std::filesystem::path& dir) {
            lt_sound_load((dir / "constant.wav").c_str()) == -1, "asset ID exhaustion fails without wrapping");
     lt::audioShutdown();
 }
+void wickRenderChecks() {
+    const char* scaleEnv = std::getenv("LANTERN_RENDER_SCALE");
+    const char* nativeEnv = std::getenv("LANTERN_RENDER_NATIVE");
+    const bool hadScale = scaleEnv != nullptr, hadNative = nativeEnv != nullptr;
+    const std::string savedScale = scaleEnv ? scaleEnv : "", savedNative = nativeEnv ? nativeEnv : "";
+    unsetenv("LANTERN_RENDER_NATIVE"); setenv("LANTERN_RENDER_SCALE","2",1);
+    auto run = [&](const std::string& source) {
+        auto vm = std::unique_ptr<VM, decltype(&wick::destroy)>(wick::create(),wick::destroy);
+        std::string err;
+        expect(registerLT(vm.get(),err),"register real render info signatures");
+        expect(wick::load(vm.get(),source,"render-info.wick",err),"live Wick render info: "+err);
+    };
+    expect(lt_boot("render-info",3),"explicit live render info boot");
+    run("check(lt.W == 400 and lt.H == 240 and lt.render_width() == 800 and lt.render_height() == 480 and not lt.render_native(), \"explicit physical target\")");
+    lt_shutdown();
+    unsetenv("LANTERN_RENDER_SCALE"); setenv("LANTERN_RENDER_NATIVE","1",1);
+    renderOutputW = 853; renderOutputH = 511;
+    expect(lt_boot("native-render-info",3),"native live render info boot");
+    run("check(lt.W == 400 and lt.H == 240 and lt.render_width() == 850 and lt.render_height() == 510 and lt.render_native(), \"native odd backing target\")");
+    renderOutputW = 1920; renderOutputH = 1080;
+    lt_frame_begin(); lt_frame_end();
+    run("check(lt.render_width() == 1800 and lt.render_height() == 1080, \"live native resize\")");
+    lt_shutdown(); renderOutputW = 1200; renderOutputH = 720;
+    if (hadScale) setenv("LANTERN_RENDER_SCALE",savedScale.c_str(),1); else unsetenv("LANTERN_RENDER_SCALE");
+    if (hadNative) setenv("LANTERN_RENDER_NATIVE",savedNative.c_str(),1); else unsetenv("LANTERN_RENDER_NATIVE");
+}
 } // namespace
 namespace lt {
 bool platInit(const char*, int) { return true; }
 void platShutdown() {}
 bool platPoll() { return true; }
+void platSetNativeRendering(bool) {}
+bool platOutputSize(int& w, int& h) { w = renderOutputW; h = renderOutputH; return true; }
 void platPresent(const uint8_t*, int, int, int) {}
 double platTime() { return 0; }
 int platInputDown(const char*) { return 0; }
@@ -427,7 +457,7 @@ int main(int argc, char** argv) {
     char* created = ::mkdtemp(name.data()); if (!created) return 2;
     std::filesystem::path dir(created);
     try {
-        mixerChecks(dir); decoderChecks(dir); wickChecks(dir); concurrencyChecks(dir);
+        mixerChecks(dir); decoderChecks(dir); wickChecks(dir); concurrencyChecks(dir); wickRenderChecks();
         std::filesystem::remove_all(dir); // only this invocation's generated WAV fixtures
         std::cout << "native audio: " << assertions << " assertions passed\n";
         return 0;

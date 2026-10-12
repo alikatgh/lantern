@@ -7,12 +7,14 @@
 // owning the pipeline practical. Same philosophy as the famemu RF chain:
 // nothing delegated, nothing faked.
 #include "gfx.hpp"
+#include "render_target.hpp"
 #include "lantern_font.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <new>
 #include <vector>
 
 namespace lt {
@@ -148,22 +150,52 @@ int Gfx::makeShadowTexture() {
 }
 
 bool Gfx::init(int renderScale) {
-    if (renderScale < 1 || renderScale > 4) return false;
-    renderScale_ = renderScale;
-    frameW_ = SCREEN_W * renderScale_;
-    frameH_ = SCREEN_H * renderScale_;
-    fb_.assign((size_t)frameW_ * frameH_ * 4, 0);
-    depth_.assign((size_t)frameW_ * frameH_, 1.0f);
-    Tex white;
-    white.w = white.h = 1;
-    white.nearest = true; // 1x1: bilinear's 4 taps are identical, skip them
-    white.px = {255, 255, 255, 255};
-    textures_.push_back(std::move(white));
-    whiteTex_ = 0;
-    fontTex_ = makeFontTexture();
-    shadowTex_ = makeShadowTexture();
-    setCamera({0, 3, 6}, {0, 0, 0}, 55.0f);
+    if (renderScale < 1 || renderScale > MAX_RENDER_SCALE) return false;
+    return initTarget(SCREEN_W * renderScale, SCREEN_H * renderScale, false);
+}
+
+bool Gfx::initNative(int width, int height) {
+    return initTarget(width, height, true);
+}
+
+bool Gfx::resizeNative(int width, int height) {
+    if (!nativeTarget_ || !validFrameSize(width, height)) return false;
+    if (width == frameW_ && height == frameH_) return true;
+    // initTarget reserved both maximum bounded allocations once. Resizing a
+    // native window never reallocates or retains a series of old framebuffers.
+    fb_.resize(size_t(width) * height * 4);
+    depth_.resize(size_t(width) * height);
+    frameW_ = width; frameH_ = height;
+    renderScale_ = float(width) / SCREEN_W;
     return true;
+}
+
+bool Gfx::initTarget(int width, int height, bool native) {
+    if (!validFrameSize(width, height)) return false;
+    try {
+        nativeTarget_ = native;
+        frameW_ = width; frameH_ = height;
+        renderScale_ = float(width) / SCREEN_W;
+        if (native) {
+            fb_.reserve(MAX_FRAME_PIXELS * 4);
+            depth_.reserve(MAX_FRAME_PIXELS);
+        }
+        fb_.assign((size_t)frameW_ * frameH_ * 4, 0);
+        depth_.assign((size_t)frameW_ * frameH_, 1.0f);
+        Tex white;
+        white.w = white.h = 1;
+        white.nearest = true; // 1x1: bilinear's 4 taps are identical, skip them
+        white.px = {255, 255, 255, 255};
+        textures_.push_back(std::move(white));
+        whiteTex_ = 0;
+        fontTex_ = makeFontTexture();
+        shadowTex_ = makeShadowTexture();
+        setCamera({0, 3, 6}, {0, 0, 0}, 55.0f);
+        return true;
+    } catch (const std::bad_alloc&) {
+        *this = Gfx{};
+        return false;
+    }
 }
 
 void Gfx::beginFrame() {
@@ -937,12 +969,90 @@ void Gfx::raster2DTri(const float* v0, const float* v1, const float* v2,
     }
 }
 
+// Ordinary sprites/text/rectangles have two triangles sharing the same axis-
+// aligned bounding box. Visit that box once and reuse constant sprite tint.
+// Keep the old weight arithmetic, ownership and blend evaluation: even tiny
+// float differences can change a truncated8-bit result. The generic triangle
+// routine remains the reference/fallback for every transformed quad.
+bool Gfx::rasterAxisQuad(const Quad2D& q, const Tex* tex, const TexClamp& uvClamp) {
+    if (!(q.v[0][0] == q.v[3][0] && q.v[0][1] == q.v[3][1] &&
+          q.v[1][1] == q.v[0][1] && q.v[1][0] == q.v[2][0] &&
+          q.v[2][0] == q.v[4][0] && q.v[2][1] == q.v[4][1] &&
+          q.v[4][1] == q.v[5][1] && q.v[5][0] == q.v[0][0])) return false;
+    struct Tri {
+        const float* v[3];
+        float dx[3], dy[3], ox[3], oy[3], invArea;
+        bool own[3];
+    } tri[2];
+    for (int i = 0; i < 2; ++i) {
+        auto& t = tri[i];
+        t.v[0] = q.v[i*3]; t.v[1] = q.v[i*3+1]; t.v[2] = q.v[i*3+2];
+        float area = (t.v[1][0]-t.v[0][0])*(t.v[2][1]-t.v[0][1])-
+                     (t.v[1][1]-t.v[0][1])*(t.v[2][0]-t.v[0][0]);
+        if (std::fabs(area) < 1e-6f) return true;
+        if (area < 0) { std::swap(t.v[1],t.v[2]); area = -area; }
+        t.invArea = 1.0f/area;
+        for (int e = 0; e < 3; ++e) {
+            const auto* p = t.v[(e+1)%3]; const auto* z = t.v[(e+2)%3];
+            t.dx[e] = z[0]-p[0]; t.dy[e] = z[1]-p[1];
+            t.ox[e] = p[0]; t.oy[e] = p[1];
+            t.own[e] = t.dy[e] > 0 || (t.dy[e] == 0 && t.dx[e] < 0);
+        }
+    }
+    const int x0 = std::max(0,int(std::floor(std::min(q.v[0][0],q.v[1][0]))));
+    const int x1 = std::min(frameW_-1,int(std::ceil(std::max(q.v[0][0],q.v[1][0]))));
+    const int y0 = std::max(0,int(std::floor(std::min(q.v[0][1],q.v[2][1]))));
+    const int y1 = std::min(frameH_-1,int(std::ceil(std::max(q.v[0][1],q.v[2][1]))));
+    if (x0 > x1 || y0 > y1) return true;
+    const bool unitTint = q.v[0][4] == 1 && q.v[0][5] == 1 && q.v[0][6] == 1 && q.v[0][7] == 1;
+    const bool white = q.tex == whiteTex_;
+    for (int y = y0; y <= y1; ++y) {
+        const float py = y+0.5f;
+        uint8_t* row = &fb_[(size_t(y)*frameW_+x0)*4];
+        for (int x = x0; x <= x1; ++x,row+=4) {
+            const float px = x+0.5f;
+            for (int i = 0; i < 2; ++i) {
+                const auto& z = tri[i];
+                const float w0 = z.dx[0]*(py-z.oy[0])-z.dy[0]*(px-z.ox[0]);
+                const float w1 = z.dx[1]*(py-z.oy[1])-z.dy[1]*(px-z.ox[1]);
+                const float w2 = z.dx[2]*(py-z.oy[2])-z.dy[2]*(px-z.ox[2]);
+                if ((w0 < 0 || (w0 == 0 && !z.own[0])) ||
+                    (w1 < 0 || (w1 == 0 && !z.own[1])) ||
+                    (w2 < 0 || (w2 == 0 && !z.own[2]))) continue;
+                const float b0 = w0*z.invArea, b1 = w1*z.invArea, b2 = w2*z.invArea;
+                float sampled[4] = {1,1,1,1};
+                if (tex && !white) {
+                    const float u = b0*z.v[0][2]+b1*z.v[1][2]+b2*z.v[2][2];
+                    const float v = b0*z.v[0][3]+b1*z.v[1][3]+b2*z.v[2][3];
+                    sampleTex(tex,u,v,uvClamp,sampled);
+                }
+                float color[4];
+                if (unitTint) {
+                    const float sum = b0+b1+b2;
+                    for (int c = 0; c < 4; ++c) color[c] = sampled[c]*sum;
+                } else {
+                    for (int c = 0; c < 4; ++c)
+                        color[c] = sampled[c]*(b0*z.v[0][c+4]+b1*z.v[1][c+4]+b2*z.v[2][c+4]);
+                }
+                float alpha = color[3];
+                if (alpha <= 0.004f) continue;
+                if (alpha > 1) alpha = 1;
+                row[0] = uint8_t(to8(color[0])*alpha+row[0]*(1-alpha));
+                row[1] = uint8_t(to8(color[1])*alpha+row[1]*(1-alpha));
+                row[2] = uint8_t(to8(color[2])*alpha+row[2]*(1-alpha));
+            }
+        }
+    }
+    return true;
+}
+
 void Gfx::flush2D() {
     for (const Quad2D& q : quads_) {
         const Tex* t = texFor(q.tex);
         TexClamp tc{0, 0, 0, 0};
         if (t) // corners 0 and 2 carry the quad's full UV extent
             tc = texClampFor(t, q.v[0][2], q.v[0][3], q.v[2][2], q.v[2][3]);
+        if (axisFastPath_ && rasterAxisQuad(q,t,tc)) continue;
         raster2DTri(q.v[0], q.v[1], q.v[2], t, tc);
         raster2DTri(q.v[3], q.v[4], q.v[5], t, tc);
     }

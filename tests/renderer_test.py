@@ -43,7 +43,7 @@ def bmp(path: Path, scale: int) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--kind', choices=('hd', 'painted_alpha'), required=True)
+    parser.add_argument('--kind', choices=('hd', 'painted_alpha', 'axis'), required=True)
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--scratch', type=Path, required=True)
     args = parser.parse_args()
@@ -63,8 +63,8 @@ def main() -> int:
                 raise ValueError('C++ renderer checks did not pass')
             captures = {}
             if args.kind == 'hd':
-                if report['assertions'] != 570:
-                    raise ValueError('570 renderer assertions were not exercised')
+                if report['assertions'] != 618:
+                    raise ValueError('618 renderer assertions were not exercised')
                 captures = {f'scale{s}': bmp(outputs / f'scale{s}.bmp', s) for s in range(1, 5)}
                 if captures['scale1']['sha256'] != OPAQUE_SCALE1_SHA256:
                     raise ValueError('opaque scale1 BMP differs from the untouched reference core')
@@ -73,7 +73,7 @@ def main() -> int:
                 for scale in (3, 4):
                     if captures[f'scale{scale}']['corners_rgb'] != [(0, 0, 0)] * 3 + [(255, 0, 0)]:
                         raise ValueError('physical final-pixel markers differ')
-            else:
+            elif args.kind == 'painted_alpha':
                 expected = {'assertions': 282897, 'raster_pixel_probes': 93432,
                             'opaque_bit_parity_samples': 2337, 'nearest_rgba_samples': 6,
                             'whole_frame_hidden_rgb_comparisons': 16}
@@ -81,6 +81,8 @@ def main() -> int:
                     raise ValueError('frozen painted-alpha checks were not fully exercised')
                 captures = {f'scale{s}-bg{bg}': bmp(outputs / f'alpha-s{s}-bg{bg}.bmp', s)
                             for s in range(1, 5) for bg in (16, 240)}
+            elif report.get('frame_comparisons') != 50 or report.get('actual_art_files') != 0:
+                raise ValueError('50 independent whole-frame axis/reference comparisons were not exercised')
             print(json.dumps({'kind': args.kind, **report, 'physical_captures': captures}, sort_keys=True))
         return 0
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:

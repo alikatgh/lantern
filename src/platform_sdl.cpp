@@ -4,6 +4,7 @@
 // gamepad input, mouse-as-touch, the audio device, save-file paths.
 // NO rendering happens here — the frame arrives fully rasterized.
 #include "platform.hpp"
+#include "render_target.hpp"
 #include "audio.hpp"
 #include "gfx.hpp" // SCREEN_W/H
 #include <SDL.h>
@@ -20,6 +21,7 @@ struct Plat {
     SDL_Window* win = nullptr;
     SDL_Renderer* ren = nullptr;      // presentation only — we never draw
     SDL_Texture* frameTex = nullptr;  // physical target; logical viewport stays fixed
+    bool nativeRendering = false;
     int frameW = SCREEN_W, frameH = SCREEN_H;
     SDL_GameController* pad = nullptr;
     const Uint8* keys = nullptr;
@@ -78,9 +80,8 @@ const std::unordered_map<std::string, Binding>& bindings() {
 
 // letterboxed destination of the 400x240 frame in renderer output pixels
 SDL_Rect dstRect(int dw, int dh) {
-    int s = std::max(1, std::min(dw / SCREEN_W, dh / SCREEN_H));
-    return {(dw - SCREEN_W * s) / 2, (dh - SCREEN_H * s) / 2, SCREEN_W * s,
-            SCREEN_H * s};
+    const auto r = presentationRect(dw, dh, P.nativeRendering);
+    return {r.x, r.y, r.w, r.h};
 }
 
 // tear down whatever a partially-failed init created — platInit's "false =
@@ -167,16 +168,29 @@ bool platPoll() {
     return !P.quit;
 }
 
+void platSetNativeRendering(bool enabled) { P.nativeRendering = enabled; }
+
+bool platOutputSize(int& width, int& height) {
+    return P.ren && SDL_GetRendererOutputSize(P.ren, &width, &height) == 0 &&
+           width > 0 && height > 0;
+}
+
 void platPresent(const uint8_t* fb, int width, int height, int pitch) {
     if (!P.ren) return;
-    if (!fb || width < SCREEN_W || width > SCREEN_W * 4 ||
-        width % SCREEN_W || height != SCREEN_H * (width / SCREEN_W) ||
-        pitch != width * 4) {
+    if (!fb || !validFrameLayout(width, height, pitch)) {
         std::fprintf(stderr, "platPresent: invalid bounded framebuffer layout\n");
         P.quit = true;
         return;
     }
     if (width != P.frameW || height != P.frameH) {
+        SDL_RendererInfo info{};
+        if (SDL_GetRendererInfo(P.ren, &info) != 0 ||
+            (info.max_texture_width > 0 && width > info.max_texture_width) ||
+            (info.max_texture_height > 0 && height > info.max_texture_height)) {
+            std::fprintf(stderr, "framebuffer exceeds renderer texture capabilities\n");
+            P.quit = true;
+            return;
+        }
         SDL_Texture* next = SDL_CreateTexture(P.ren, SDL_PIXELFORMAT_ABGR8888,
                                               SDL_TEXTUREACCESS_STREAMING,
                                               width, height);
@@ -196,8 +210,9 @@ void platPresent(const uint8_t* fb, int width, int height, int pitch) {
         return;
     }
     int dw, dh;
-    SDL_GetRendererOutputSize(P.ren, &dw, &dh);
+    if (!platOutputSize(dw, dh)) return; // minimized/unavailable drawable
     SDL_Rect dst = dstRect(dw, dh);
+    if (dst.w <= 0 || dst.h <= 0) return;
     SDL_SetRenderDrawColor(P.ren, 13, 13, 15, 255);
     SDL_RenderClear(P.ren);
     SDL_RenderCopy(P.ren, P.frameTex, nullptr, &dst);
@@ -248,6 +263,7 @@ PlatformTouch platTouch() {
     float px = P.touchWinX * (ww > 0 ? (float)dw / (float)ww : 1.0f);
     float py = P.touchWinY * (wh > 0 ? (float)dh / (float)wh : 1.0f);
     SDL_Rect d = dstRect(dw, dh);
+    if (d.w <= 0 || d.h <= 0) return t;
     float s = (float)d.w / (float)SCREEN_W;
     t.x = std::clamp((px - (float)d.x) / s, 0.0f, (float)SCREEN_W - 1);
     t.y = std::clamp((py - (float)d.y) / s, 0.0f, (float)SCREEN_H - 1);
