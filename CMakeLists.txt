@@ -105,6 +105,8 @@ add_test(NAME wick_bitlab COMMAND ${CMAKE_COMMAND} -E env
 # CPU renderer checks replace OS presentation/input with deterministic stubs.
 # The fixtures are generated in bounded temporary directories under the build.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+find_package(Threads REQUIRED)
+target_link_libraries(lantern_core PUBLIC Threads::Threads)
 add_executable(lantern_hd_renderer_test tests/lantern-hd-renderer.cpp)
 target_include_directories(lantern_hd_renderer_test PRIVATE src)
 target_link_libraries(lantern_hd_renderer_test lantern_core)
@@ -114,6 +116,7 @@ add_executable(lantern_painted_alpha_test tests/lantern-painted-alpha.cpp)
 # adding any public renderer ABI. The normal host still links lantern_core.
 target_include_directories(lantern_painted_alpha_test PRIVATE src)
 target_compile_options(lantern_painted_alpha_test PRIVATE -Wall -Wextra)
+target_link_libraries(lantern_painted_alpha_test PRIVATE Threads::Threads)
 add_test(NAME renderer_hd
     COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/renderer_test.py
         --kind hd --binary $<TARGET_FILE:lantern_hd_renderer_test>
@@ -132,11 +135,21 @@ set_tests_properties(renderer_native PROPERTIES TIMEOUT 60 LABELS renderer)
 add_executable(lantern_axis_renderer_test tests/axis_renderer_test.cpp)
 target_include_directories(lantern_axis_renderer_test PRIVATE src)
 target_compile_options(lantern_axis_renderer_test PRIVATE -Wall -Wextra)
+target_link_libraries(lantern_axis_renderer_test PRIVATE Threads::Threads)
 add_test(NAME renderer_axis
     COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/renderer_test.py
         --kind axis --binary $<TARGET_FILE:lantern_axis_renderer_test>
         --scratch ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(renderer_axis PROPERTIES TIMEOUT 90 LABELS renderer)
+add_executable(lantern_painted_compositor_test tests/painted_compositor_test.cpp)
+target_include_directories(lantern_painted_compositor_test PRIVATE src)
+target_link_libraries(lantern_painted_compositor_test PRIVATE Threads::Threads)
+target_compile_options(lantern_painted_compositor_test PRIVATE -Wall -Wextra)
+add_test(NAME renderer_painted_compositor
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/painted_compositor_test.py
+        --binary $<TARGET_FILE:lantern_painted_compositor_test>
+        --scratch ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(renderer_painted_compositor PROPERTIES TIMEOUT 90 LABELS renderer)
 
 # Compile-only API and CLI checks do not initialize SDL/audio or execute Wick.
 add_executable(wick_host_header_test tests/wick_host_header_test.cpp)

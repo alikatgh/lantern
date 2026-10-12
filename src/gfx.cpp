@@ -2,22 +2,115 @@
 // near clip, perspective-correct raster, depth, bilinear sampling, lighting,
 // fog, blending — all computed here, no GPU API anywhere.
 //
-// At 400×240 (96k pixels) a tight scalar rasterizer comfortably feeds
-// 60 fps on anything modern; that resolution ceiling is exactly what makes
-// owning the pipeline practical. Same philosophy as the famemu RF chain:
-// nothing delegated, nothing faked.
+// The original triangle path remains the reference for legacy and 3D modes.
+// Opt-in painted 2D uses affine quads and bounded parallel row bands; its
+// physical-pixel cost must be measured on the actual target and game.
 #include "gfx.hpp"
 #include "render_target.hpp"
 #include "lantern_font.h"
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cctype>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
 #include <new>
+#include <mutex>
+#include <system_error>
+#include <thread>
 #include <vector>
 
 namespace lt {
+
+// One synchronous row-band job at a time, with disjoint framebuffer ownership.
+// Jobs and thread handles have fixed storage; no frame creates threads/tasks.
+// A Gfx may move when idle: workers only receive its address for each job.
+struct Gfx::RowWorkers {
+    using Work = void (*)(void*, int, int);
+    std::array<std::thread, 7> threads;
+    std::mutex mutex;
+    std::condition_variable ready, done;
+    Work work = nullptr;
+    void* context = nullptr;
+    uint64_t generation = 0;
+    std::atomic<int> nextRow{0};
+    int count = 1, height = 0, pending = 0;
+    bool stopping = false;
+
+    explicit RowWorkers(int n) {
+        try {
+            for (int i = 1; i < n; ++i) {
+                threads[i-1] = std::thread([this] {
+                    uint64_t seen = 0;
+                    std::unique_lock<std::mutex> lock(mutex);
+                    for (;;) {
+                        ready.wait(lock, [&] { return stopping || generation != seen; });
+                        if (stopping) return;
+                        seen = generation;
+                        lock.unlock();
+                        renderBands();
+                        lock.lock();
+                        if (--pending == 0) done.notify_one();
+                    }
+                });
+                ++count;
+            }
+        } catch (...) {
+            stop();
+            throw;
+        }
+    }
+    void stop() noexcept {
+        { std::lock_guard<std::mutex> lock(mutex); stopping = true; }
+        ready.notify_all();
+        for (auto& t : threads) if (t.joinable()) t.join();
+    }
+    ~RowWorkers() { stop(); }
+    void renderBands() {
+        // Small bands balance panorama, foreground actors and HUD work while
+        // preserving quad order within every exclusively owned row interval.
+        for (;;) {
+            const int y0 = nextRow.fetch_add(64,std::memory_order_relaxed);
+            if (y0 >= height) return;
+            work(context,y0,std::min(y0+64,height));
+        }
+    }
+    void run(int rows, Work fn, void* ctx) {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            height = rows; work = fn; context = ctx; pending = count-1; nextRow = 0;
+            ++generation;
+        }
+        ready.notify_all();
+        renderBands();
+        std::unique_lock<std::mutex> lock(mutex);
+        done.wait(lock, [&] { return pending == 0; });
+    }
+};
+
+Gfx::Gfx() = default;
+Gfx::~Gfx() = default;
+Gfx::Gfx(Gfx&&) noexcept = default;
+Gfx& Gfx::operator=(Gfx&&) noexcept = default;
+
+int Gfx::painted2DWorkers() const { return rowWorkers_ ? rowWorkers_->count : 1; }
+
+bool Gfx::setPainted2D(bool enabled, int workers) {
+    if (workers < 0 || workers > 8) return false;
+    flush2D(); // any queued quads retain their original mode
+    rowWorkers_.reset();
+    painted2D_ = enabled;
+    if (!enabled) return true;
+    if (workers == 0) workers = int(std::min(8u, std::max(1u, std::thread::hardware_concurrency())));
+    if (workers > 1) {
+        try { rowWorkers_ = std::make_unique<RowWorkers>(workers); }
+        catch (const std::bad_alloc&) {} // bounded serial compositor remains usable
+        catch (const std::system_error&) {}
+    }
+    return true;
+}
 
 // ---------------------------------------------------------------- textures
 
@@ -46,10 +139,10 @@ static TexClamp texClampFor(const Gfx::Tex* t, float u0, float v0, float u1,
     if (u1 < u0) std::swap(u0, u1);
     if (v1 < v0) std::swap(v0, v1);
     TexClamp c;
-    c.x0 = std::max(0, (int)std::floor(u0 * t->w + 1e-4f));
-    c.y0 = std::max(0, (int)std::floor(v0 * t->h + 1e-4f));
-    c.x1 = std::min(t->w - 1, (int)std::ceil(u1 * t->w - 1e-4f) - 1);
-    c.y1 = std::min(t->h - 1, (int)std::ceil(v1 * t->h - 1e-4f) - 1);
+    c.x0 = (int)std::floor(std::clamp(u0 * t->w + 1e-4f, 0.0f, float(t->w-1)));
+    c.y0 = (int)std::floor(std::clamp(v0 * t->h + 1e-4f, 0.0f, float(t->h-1)));
+    c.x1 = std::max(0, (int)std::ceil(std::clamp(u1 * t->w - 1e-4f, 0.0f, float(t->w))) - 1);
+    c.y1 = std::max(0, (int)std::ceil(std::clamp(v1 * t->h - 1e-4f, 0.0f, float(t->h))) - 1);
     if (c.x1 < c.x0) c.x1 = c.x0;
     if (c.y1 < c.y0) c.y1 = c.y0;
     return c;
@@ -182,9 +275,12 @@ bool Gfx::initTarget(int width, int height, bool native) {
         }
         fb_.assign((size_t)frameW_ * frameH_ * 4, 0);
         depth_.assign((size_t)frameW_ * frameH_, 1.0f);
+        depthNeedsClear_ = false;
+        textures_.clear(); meshes_.clear(); quads_.clear();
         Tex white;
         white.w = white.h = 1;
         white.nearest = true; // 1x1: bilinear's 4 taps are identical, skip them
+        white.opaque = true;
         white.px = {255, 255, 255, 255};
         textures_.push_back(std::move(white));
         whiteTex_ = 0;
@@ -199,19 +295,35 @@ bool Gfx::initTarget(int width, int height, bool native) {
 }
 
 void Gfx::beginFrame() {
-    std::memset(fb_.data(), 0, fb_.size());
-    std::fill(depth_.begin(), depth_.end(), 1.0f);
+    if (fb_.empty()) { quads_.clear(); depthNeedsClear_ = false; return; }
+    if (painted2D_ && rowWorkers_ && frameW_*frameH_ >= 400*240) {
+        rowWorkers_->run(frameH_, [](void* context,int y0,int y1) {
+            auto& g=*static_cast<Gfx*>(context);
+            std::memset(g.fb_.data()+size_t(y0)*g.frameW_*4,0,size_t(y1-y0)*g.frameW_*4);
+        },this);
+    } else std::memset(fb_.data(), 0, fb_.size());
+    if (painted2D_) depthNeedsClear_ = true;
+    else { std::fill(depth_.begin(), depth_.end(), 1.0f); depthNeedsClear_ = false; }
     quads_.clear();
 }
 
 void Gfx::clear(float r, float g, float b) {
+    if (fb_.empty()) return;
     uint8_t cr = (uint8_t)(std::min(std::max(r, 0.0f), 1.0f) * 255);
     uint8_t cg = (uint8_t)(std::min(std::max(g, 0.0f), 1.0f) * 255);
     uint8_t cb = (uint8_t)(std::min(std::max(b, 0.0f), 1.0f) * 255);
-    for (size_t i = 0; i < fb_.size(); i += 4) {
-        fb_[i] = cr; fb_[i + 1] = cg; fb_[i + 2] = cb; fb_[i + 3] = 255;
-    }
-    std::fill(depth_.begin(), depth_.end(), 1.0f);
+    struct Clear { Gfx* gfx; uint8_t pixel[4]; } job{this,{cr,cg,cb,255}};
+    const auto work=[](void* context,int y0,int y1) {
+        const auto& j=*static_cast<Clear*>(context);
+        uint8_t* start=j.gfx->fb_.data()+size_t(y0)*j.gfx->frameW_*4;
+        const size_t length=size_t(y1-y0)*j.gfx->frameW_*4;
+        for (size_t i=0;i<length;i+=4) std::memcpy(start+i,j.pixel,4);
+    };
+    if (painted2D_ && rowWorkers_ && frameW_*frameH_ >= 400*240)
+        rowWorkers_->run(frameH_,work,&job);
+    else work(&job,0,frameH_);
+    if (painted2D_) depthNeedsClear_ = true;
+    else { std::fill(depth_.begin(), depth_.end(), 1.0f); depthNeedsClear_ = false; }
 }
 
 void Gfx::setCamera(Vec3 eye, Vec3 target, float fovDeg) {
@@ -500,6 +612,10 @@ void Gfx::emitTriangles(const float* verts, int vertCount, const float* verts2,
                         float lerpT, int tex, const Mat4& model, float r,
                         float g, float b, bool unlit, RasterMode mode,
                         const float* uvRect) {
+    if (depthNeedsClear_) {
+        std::fill(depth_.begin(), depth_.end(), 1.0f);
+        depthNeedsClear_ = false;
+    }
     Mat4 mvp = mul(vp_, model);
     const Tex* T = tex >= 0 ? texFor(tex) : nullptr;
     TexClamp tc{0, 0, 0, 0};
@@ -803,6 +919,9 @@ int Gfx::loadTexture(const std::string& bmpPath, int* outW, int* outH) {
             if (!changed) break;
         }
     }
+    t.opaque = true;
+    for (size_t i = 3; i < t.px.size(); i += 4)
+        if (t.px[i] != 255) { t.opaque = false; break; }
     textures_.push_back(std::move(t));
     if (outW) *outW = textures_.back().w;
     if (outH) *outH = textures_.back().h;
@@ -1046,7 +1165,179 @@ bool Gfx::rasterAxisQuad(const Quad2D& q, const Tex* tex, const TexClamp& uvClam
     return true;
 }
 
+bool Gfx::isPaintedAxis(const Quad2D& q) const {
+    for (const auto& v : q.v) for (float f : v) if (!std::isfinite(f)) return false;
+    if (!(q.v[0][0] == q.v[3][0] && q.v[0][1] == q.v[3][1] &&
+          q.v[1][1] == q.v[0][1] && q.v[1][0] == q.v[2][0] &&
+          q.v[2][0] == q.v[4][0] && q.v[2][1] == q.v[4][1] &&
+          q.v[4][1] == q.v[5][1] && q.v[5][0] == q.v[0][0])) return false;
+    // Constant tint and independent horizontal/vertical UVs are required.
+    for (int i = 1; i < 6; ++i) for (int c = 4; c < 8; ++c)
+        if (q.v[i][c] != q.v[0][c]) return false;
+    return q.v[0][2] == q.v[5][2] && q.v[1][2] == q.v[2][2] &&
+           q.v[0][3] == q.v[1][3] && q.v[2][3] == q.v[5][3];
+}
+
+Gfx::PixelRect Gfx::paintedBounds(const Quad2D& q) const {
+    const float left = std::min(q.v[0][0], q.v[1][0]);
+    const float right = std::max(q.v[0][0], q.v[1][0]);
+    const float top = std::min(q.v[0][1], q.v[2][1]);
+    const float bottom = std::max(q.v[0][1], q.v[2][1]);
+    const float width = q.v[1][0]-q.v[0][0], height = q.v[2][1]-q.v[0][1];
+    if (std::fabs(width*height) < 1e-6f || q.v[0][7] <= 0.004f) return {};
+    // Legacy edge ownership is (left,right] x (top,bottom] at pixel centers.
+    return {int(std::floor(std::clamp(left-0.5f, -1.0f, float(frameW_-1))))+1,
+            int(std::floor(std::clamp(top-0.5f, -1.0f, float(frameH_-1))))+1,
+            int(std::floor(std::clamp(right-0.5f, -1.0f, float(frameW_-1)))),
+            int(std::floor(std::clamp(bottom-0.5f, -1.0f, float(frameH_-1))))};
+}
+
+void Gfx::rasterPaintedQuad(const Quad2D& q, const Tex* tex,
+                          const TexClamp& c, int firstRow, int lastRow,
+                          const PixelRect* occlusion) {
+    const auto bounds = paintedBounds(q);
+    const int x0=bounds.x0, x1=bounds.x1;
+    const int y0=std::max(firstRow,bounds.y0), y1=std::min(lastRow-1,bounds.y1);
+    if (x0 > x1 || y0 > y1) return;
+    const bool hole = occlusion && occlusion->x0 <= x1 && occlusion->x1 >= x0 &&
+                                  occlusion->y0 <= y1 && occlusion->y1 >= y0;
+    const int skip0=hole?std::max(x0,occlusion->x0):0;
+    const int skip1=hole?std::min(x1,occlusion->x1):-1;
+    const bool allRows = hole && y0 >= occlusion->y0 && y1 <= occlusion->y1;
+    if (allRows && skip0 == x0 && skip1 == x1) return;
+    // Subtract exactly the later opaque rectangle. Each row has at most two
+    // disjoint visible spans; absolute sample coordinates remain unchanged.
+    const auto spans = [&](int y, auto draw) {
+        if (hole && y >= occlusion->y0 && y <= occlusion->y1) {
+            if (x0 < skip0) draw(x0,skip0-1);
+            if (skip1 < x1) draw(skip1+1,x1);
+        } else draw(x0,x1);
+    };
+    const float* tint = q.v[0]+4;
+    auto byte = [](float value) { return uint8_t(std::clamp(value,0.0f,255.0f)); };
+    if (!tex || q.tex == whiteTex_) {
+        const uint8_t rgb[3] = {to8(tint[0]),to8(tint[1]),to8(tint[2])};
+        const float alpha = std::min(tint[3],1.0f), inverse = 1-alpha;
+        for (int y = y0; y <= y1; ++y) {
+            spans(y,[&](int start,int end) {
+                uint8_t* p = &fb_[(size_t(y)*frameW_+start)*4];
+                if (alpha == 1) {
+                    // Preserve framebuffer alpha: 2D has always written RGB only.
+                    for (int x = start; x <= end; ++x,p+=4) {
+                        p[0]=rgb[0]; p[1]=rgb[1]; p[2]=rgb[2];
+                    }
+                } else for (int x = start; x <= end; ++x,p+=4)
+                    for (int k=0;k<3;++k) p[k]=uint8_t(rgb[k]*alpha+p[k]*inverse);
+            });
+        }
+        return;
+    }
+    struct Tap { int x0, x1; float fraction; };
+    std::array<Tap, MAX_FRAME_W> taps;
+    const float width = q.v[1][0]-q.v[0][0], height = q.v[2][1]-q.v[0][1];
+    const float du = (q.v[1][2]-q.v[0][2])/width;
+    const float dv = (q.v[2][3]-q.v[0][3])/height;
+    for (int x = x0; x <= x1; ++x) {
+        if (allRows && x == skip0) { x=skip1; continue; }
+        const float u = q.v[0][2]+((x+0.5f)-q.v[0][0])*du;
+        const float fx = std::clamp(u*tex->w-(tex->nearest?0.0f:0.5f),float(c.x0-1),float(c.x1+1));
+        const int ix = tex->nearest ? int(fx) : int(std::floor(fx));
+        taps[x] = {std::clamp(ix,c.x0,c.x1)*4,std::clamp(ix+1,c.x0,c.x1)*4,fx-ix};
+    }
+    const bool opaque = tex->opaque && tint[3] >= 1;
+    for (int y = y0; y <= y1; ++y) {
+        const float v = q.v[0][3]+((y+0.5f)-q.v[0][1])*dv;
+        const float fy = std::clamp(v*tex->h-(tex->nearest?0.0f:0.5f),float(c.y0-1),float(c.y1+1));
+        const int iy = tex->nearest ? int(fy) : int(std::floor(fy));
+        const float ay = fy-iy;
+        const uint8_t* row0 = &tex->px[size_t(std::clamp(iy,c.y0,c.y1))*tex->w*4];
+        const uint8_t* row1 = &tex->px[size_t(std::clamp(iy+1,c.y0,c.y1))*tex->w*4];
+        spans(y,[&](int start,int end) {
+        uint8_t* dst = &fb_[(size_t(y)*frameW_+start)*4];
+        for (int x = start; x <= end; ++x,dst+=4) {
+            const auto tap = taps[x];
+            const auto* a = row0+tap.x0; const auto* b = row0+tap.x1;
+            const auto* d = row1+tap.x0; const auto* e = row1+tap.x1;
+            if (tex->nearest) {
+                const float alpha = std::min(a[3]*(tint[3]/255.0f),1.0f);
+                if (alpha <= 0.004f) continue;
+                for (int k=0;k<3;++k) {
+                    const auto color = byte(a[k]*tint[k]);
+                    dst[k]=alpha==1?color:uint8_t(color*alpha+dst[k]*(1-alpha));
+                }
+                continue;
+            }
+            auto bilinear = [&](float aa,float bb,float dd,float ee) {
+                const float hi=aa+(bb-aa)*tap.fraction, lo=dd+(ee-dd)*tap.fraction;
+                return hi+(lo-hi)*ay;
+            };
+            if (opaque) {
+                for (int k=0;k<3;++k) dst[k]=byte(bilinear(a[k],b[k],d[k],e[k])*tint[k]);
+                continue;
+            }
+            const float sampledAlpha=bilinear(a[3],b[3],d[3],e[3]);
+            const float alpha=std::min(sampledAlpha*(tint[3]/255.0f),1.0f);
+            if (alpha <= 0.004f) continue;
+            for (int k=0;k<3;++k) {
+                const float color=bilinear(a[k]*a[3],b[k]*b[3],d[k]*d[3],e[k]*e[3])/sampledAlpha;
+                const auto value=byte(color*tint[k]);
+                dst[k]=alpha==1?value:uint8_t(value*alpha+dst[k]*(1-alpha));
+            }
+        }
+        });
+    }
+}
+
+void Gfx::paintedRange(size_t first, size_t last) {
+    struct Job { Gfx* gfx; size_t first,last,occluder; PixelRect bounds; } job{this,first,last,last,{}};
+    size_t largest=0;
+    // One bounded occluder per contiguous axis range. Only the immutable
+    // untextured builtin with alpha>=1 completely replaces earlier RGB;
+    // destination alpha is preserved by every 2D command.
+    for (size_t i=first+1;i<last;++i) {
+        const auto& q=quads_[i];
+        if (q.tex != whiteTex_ || whiteTex_ < 0 || q.v[0][7] < 1) continue;
+        const auto b=paintedBounds(q);
+        if (b.x0>b.x1 || b.y0>b.y1) continue;
+        const size_t area=size_t(b.x1-b.x0+1)*(b.y1-b.y0+1);
+        if (area>=largest) { largest=area; job.occluder=i; job.bounds=b; }
+    }
+    const auto work = [](void* context,int y0,int y1) {
+        auto& j=*static_cast<Job*>(context);
+        for (size_t i=j.first;i<j.last;++i) {
+            const auto& q=j.gfx->quads_[i];
+            const Tex* t=j.gfx->texFor(q.tex);
+            const auto clamp=t?texClampFor(t,q.v[0][2],q.v[0][3],q.v[2][2],q.v[2][3]):TexClamp{};
+            j.gfx->rasterPaintedQuad(q,t,clamp,y0,y1,i<j.occluder&&j.occluder<j.last?&j.bounds:nullptr);
+        }
+    };
+    if (rowWorkers_ && frameW_*frameH_ >= 400*240)
+        rowWorkers_->run(frameH_,work,&job);
+    else work(&job,0,frameH_);
+}
+
 void Gfx::flush2D() {
+    size_t first=0;
+    if (painted2D_) {
+        for (size_t i=0;i<quads_.size();++i) {
+            if (isPaintedAxis(quads_[i])) continue;
+            if (first<i) paintedRange(first,i);
+            // Synchronize before a transformed quad; retain legacy triangle
+            // coverage/order. Subsequent bands see its completed pixels.
+            const auto& q=quads_[i];
+            bool finite=true;
+            for (const auto& v:q.v) for (float value:v) finite=finite&&std::isfinite(value);
+            if (!finite) { first=i+1; continue; }
+            const Tex* t=texFor(q.tex);
+            const auto c=t?texClampFor(t,q.v[0][2],q.v[0][3],q.v[2][2],q.v[2][3]):TexClamp{};
+            raster2DTri(q.v[0],q.v[1],q.v[2],t,c);
+            raster2DTri(q.v[3],q.v[4],q.v[5],t,c);
+            first=i+1;
+        }
+        if (first<quads_.size()) paintedRange(first,quads_.size());
+        quads_.clear();
+        return;
+    }
     for (const Quad2D& q : quads_) {
         const Tex* t = texFor(q.tex);
         TexClamp tc{0, 0, 0, 0};

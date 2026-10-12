@@ -25,11 +25,13 @@ void expect(bool pass, const char* why) {
 }
 void resetEnvironment() {
     unsetenv("LANTERN_RENDER_SCALE"); unsetenv("LANTERN_RENDER_NATIVE");
+    unsetenv("LANTERN_PAINTED_2D"); unsetenv("LANTERN_RENDER_WORKERS");
     unsetenv("LANTERN_SHOT"); unsetenv("LANTERN_FIXED_DT");
 }
 void settings() {
     resetEnvironment();
-    expect(lt_render_width() == 0 && lt_render_height() == 0 && !lt_render_native(), "unbooted info");
+    lt_clear(0.2f,0.3f,0.4f); // an unbooted target remains a safe no-op
+    expect(lt_render_width() == 0 && lt_render_height() == 0 && !lt_render_native() && !lt_render_painted() && lt_render_workers() == 0, "unbooted info");
     for (const char* value : {"", "0", "2", "01", "1 ", "+1", "native", "1111111111111111"}) {
         setenv("LANTERN_RENDER_NATIVE", value, 1);
         const int before = initCalls;
@@ -50,7 +52,36 @@ void settings() {
     resetEnvironment();
     expect(lt_boot("legacy", 3), "legacy boot");
     expect(lt_render_width() == 400 && lt_render_height() == 240 && !lt_render_native() && !platformNative, "unset legacy target unchanged");
+    expect(!lt_render_painted() && lt_render_workers() == 1, "unset legacy compositor has one caller");
     lt_shutdown();
+    lt_clear(0.2f,0.3f,0.4f); // shutdown restores the empty target
+    for (const char* value : {"", "0", "2", "01", "1 ", "+1", "true"}) {
+        setenv("LANTERN_PAINTED_2D", value, 1);
+        const int before = initCalls;
+        expect(!lt_boot("bad painted mode", 3) && before == initCalls, "bad painted mode rejects before allocation");
+    }
+    resetEnvironment();
+    setenv("LANTERN_RENDER_WORKERS", "2", 1);
+    const int before = initCalls;
+    expect(!lt_boot("workers without painted mode", 3) && before == initCalls, "workers require painted mode before allocation");
+    setenv("LANTERN_PAINTED_2D", "1", 1);
+    for (const char* value : {"", "0", "9", "01", "1 ", "+1", "auto", "99999999999999999999"}) {
+        setenv("LANTERN_RENDER_WORKERS", value, 1);
+        const int calls = initCalls;
+        expect(!lt_boot("bad worker count", 3) && calls == initCalls, "worker bounds reject before allocation");
+    }
+    for (const char* value : {"1", "2", "8"}) {
+        setenv("LANTERN_RENDER_WORKERS", value, 1);
+        expect(lt_boot("painted mode", 3), "painted mode boots at bounded worker counts");
+        expect(lt_render_painted() && lt_render_workers() >= 1 && lt_render_workers() <= std::atoi(value), "actual painted worker count is observable and bounded");
+        requireLastRed = true;
+        lt_frame_begin(); lt_clear(0,0,0); lt_rect(399,239,1,1,1,0,0,1); lt_frame_end();
+        requireLastRed = false;
+        lt_resources_reset();
+        lt_shutdown();
+        expect(!lt_render_painted() && lt_render_workers() == 0, "painted shutdown clears observed mode/count");
+    }
+    resetEnvironment();
 }
 void layouts() {
     for (const auto& size : {std::pair<int,int>{3840,2160}, {1920,1080}, {853,511}, {501,307}, {320,200}, {5,3}, {4000,2400}, {INT_MAX,INT_MAX}}) {

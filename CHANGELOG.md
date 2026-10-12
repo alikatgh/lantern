@@ -6,6 +6,28 @@ while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
 
 ## [Unreleased]
 
+### Optional painted 2D compositor
+
+- Add strict `LANTERN_PAINTED_2D=1` and optional `LANTERN_RENDER_WORKERS=1..8`,
+  plus additive `painted-2d-v1` build-info metadata. Legacy rendering remains
+  the default. Malformed settings fail before platform allocation.
+- Expose the active mode and actual worker count through typed C/Wick getters,
+  including serial fallback and unbooted state, for agents and diagnostics.
+- Sample axis-aligned painted images directly, retaining alpha-weighted
+  bilinear filtering, clamped atlas cells, tint and painter order. Opaque images
+  and solid rectangles have dedicated paths. Small color-byte differences from
+  legacy triangle interpolation are explicit; serial/parallel output matches.
+- Use a persistent, bounded per-instance row pool with serial fallback on
+  thread/allocation failure. Reuse workers and stack work descriptors; defer
+  depth clearing until a 3D draw needs it. Transformed 2D draws synchronize with
+  the reference renderer. Shutdown, resize, reset and moved instances are tested.
+- Skip earlier pixels hidden by one later opaque untextured rectangle in each
+  painted axis batch, retaining visible borders and exact RGBA. A true unculled
+  painted reference checks 336 frame comparisons across workers 1/2/8, including fractional
+  clipping, transparency, textured covers and transformed boundaries.
+- Measure 120 warmed CPU frames per benchmark scene. Native presentation and
+  sustained 60 FPS remain separate, unverified acceptance criteria.
+
 ### Experimental native rendering and physical framebuffer APIs
 
 - Accept strict `LANTERN_RENDER_SCALE=1..10`, preserving the unset 400×240 default.
