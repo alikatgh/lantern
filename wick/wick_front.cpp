@@ -66,6 +66,9 @@ struct Compiler {
     bool hasAhead = false;
     std::string err;
     bool failed = false;
+    Diagnostic* diagnostic = nullptr;
+    unsigned depth = 0;
+    int expressionLine = 1;
 
     Proto* proto = nullptr;        // current emit target
     int protoIdx = 0;
@@ -74,11 +77,17 @@ struct Compiler {
     bool inFn = false;
     std::vector<LoopCtx> loops;
 
-    explicit Compiler(VM& v, const std::string& s) : vm(v), src(s) {}
+    explicit Compiler(VM& v, const std::string& s, Diagnostic* d)
+        : vm(v), src(s), diagnostic(d) {}
 
     // ---- errors ----
-    bool fail(const std::string& m, int ln = -1) {
+    bool fail(const std::string& m, int ln = -1,
+              const char* code = "WICK_COMPILE_ERROR") {
         if (!failed) {
+            if (diagnostic) {
+                *diagnostic = {vm.chunkName, ln < 0 ? cur.line : ln, m,
+                               "compile", code};
+            }
             char buf[512];
             std::snprintf(buf, sizeof buf, "%s:%d: %s", vm.chunkName.c_str(),
                           ln < 0 ? cur.line : ln, m.c_str());
@@ -87,6 +96,22 @@ struct Compiler {
         }
         return false;
     }
+
+    // Count recursive parser entries, including type, unary and elif paths.
+    // Keep this local to compilation; it does not alter runtime call depth.
+    struct DepthGuard {
+        Compiler& c;
+        bool ok;
+        explicit DepthGuard(Compiler& compiler) : c(compiler), ok(!c.failed) {
+            ++c.depth;
+            if (ok && c.depth > COMPILE_DEPTH_LIMIT) {
+                c.fail("compiler nesting exceeds 256 recursive entries", -1,
+                       "WICK_COMPLEXITY_LIMIT");
+                ok = false;
+            }
+        }
+        ~DepthGuard() { --c.depth; }
+    };
 
     // ---- lexer ----
     Tok lex() {
@@ -196,7 +221,11 @@ struct Compiler {
                     s += d;
                 }
             }
-            if (pos < src.size()) pos++; // closing quote
+            if (pos == src.size()) {
+                fail("unterminated string literal", t.line);
+                return t;
+            }
+            pos++; // closing quote
             t.kind = T_STR;
             t.text = s;
             return t;
@@ -285,15 +314,22 @@ struct Compiler {
         size_t off = proto->code.size() + 2 - target;
         emit((uint8_t)(off & 0xff)); emit((uint8_t)(off >> 8));
     }
-    uint16_t addConstVal(Value v) {
+    bool constantAvailable(int ln) {
+        if (vm.consts.size() < 65536) return true;
+        return fail("constant pool exceeds 65536 entries", ln,
+                    "WICK_CONSTANT_LIMIT");
+    }
+    uint16_t addConstVal(Value v, int ln) {
+        if (!constantAvailable(ln)) return 0;
         vm.consts.push_back(v);
         return (uint16_t)(vm.consts.size() - 1);
     }
-    uint16_t addConstStr(const std::string& s) {
+    uint16_t addConstStr(const std::string& s, int ln) {
+        if (!constantAvailable(ln)) return 0;
         Obj* o = vm.newObj(Obj::STR);
         o->s = s;
         Value v; v.tag = Value::STR; v.o = o;
-        return addConstVal(v);
+        return addConstVal(v, ln);
     }
 
     // ---- scopes ----
@@ -325,6 +361,8 @@ struct Compiler {
 
     // ---- types ----
     bool parseType(Type& out) {
+        DepthGuard guard(*this);
+        if (!guard.ok) return false;
         out = Type{};
         if (cur.kind != T_IDENT) return fail("expected type name");
         std::string n = cur.text;
@@ -371,12 +409,19 @@ struct Compiler {
     bool checkAssign(const Type& dst, const Type& src, const char* what) {
         if (assignable(dst, src)) return true;
         return fail(std::string(what) + ": expected " + dst.name() +
-                    ", got " + src.name());
+                    ", got " + src.name(), expressionLine);
     }
 
     // ---- expressions (Pratt). Every parse returns the static Type. ----
     // precedence: or < and < ?? < ==/!= < cmp < +- < */% < unary < postfix
-    Type expression() { return parseOr(); }
+    Type expression() {
+        DepthGuard guard(*this);
+        if (!guard.ok) return {Type::VOID};
+        const int startLine = cur.line;
+        Type result = parseOr();
+        expressionLine = startLine;
+        return result;
+    }
 
     Type parseOr() {
         Type l = parseAnd();
@@ -497,6 +542,8 @@ struct Compiler {
         return l;
     }
     Type parseUnary() {
+        DepthGuard guard(*this);
+        if (!guard.ok) return {Type::VOID};
         if (cur.kind == T_MINUS) {
             advance();
             Type t = parseUnary();
@@ -616,7 +663,7 @@ struct Compiler {
         return false;
     }
 
-    Type callNative(int natIdx) {
+    Type callNative(int natIdx, int callLine) {
         Native& n = vm.natives[natIdx];
         if (!expect(T_LP, "'('")) return {Type::VOID};
         int argc = 0;
@@ -642,7 +689,7 @@ struct Compiler {
         }
         // fill defaults so the runtime always sees full arity
         for (int i = argc; i < (int)n.params.size(); i++)
-            emit2(OP_CONST, addConstVal(n.defaults[i]));
+            emit2(OP_CONST, addConstVal(n.defaults[i], callLine));
         emit2(OP_NCALL, (uint16_t)natIdx);
         emit((uint8_t)n.params.size());
         return n.ret;
@@ -682,14 +729,16 @@ struct Compiler {
         switch (cur.kind) {
         case T_NUM: {
             double d = cur.num;
+            int literalLine = cur.line;
             advance();
-            emit2(OP_CONST, addConstVal(Value::num(d)));
+            emit2(OP_CONST, addConstVal(Value::num(d), literalLine));
             return {Type::NUM, false, Type::NUM};
         }
         case T_STR: {
             std::string s = cur.text;
+            int literalLine = cur.line;
             advance();
-            emit2(OP_CONST, addConstStr(s));
+            emit2(OP_CONST, addConstStr(s, literalLine));
             return {Type::STR, false, Type::NUM};
         }
         case T_TRUE: advance(); emit(OP_TRUE); return {Type::BOOL, false, Type::NUM};
@@ -724,7 +773,7 @@ struct Compiler {
             Type elem{Type::VOID};
             do {
                 if (cur.kind != T_STR) { fail("map keys must be str literals"); break; }
-                emit2(OP_CONST, addConstStr(cur.text));
+                emit2(OP_CONST, addConstStr(cur.text, cur.line));
                 advance();
                 expect(T_COLON, "':'");
                 Type v = expression();
@@ -834,11 +883,11 @@ struct Compiler {
             advance();
             auto ci = vm.numConsts.find(full);
             if (ci != vm.numConsts.end()) {
-                emit2(OP_CONST, addConstVal(Value::num(ci->second)));
+                emit2(OP_CONST, addConstVal(Value::num(ci->second), nameLine));
                 return {Type::NUM, false, Type::NUM};
             }
             auto ni = vm.natByName.find(full);
-            if (ni != vm.natByName.end()) return callNative(ni->second);
+            if (ni != vm.natByName.end()) return callNative(ni->second, nameLine);
             fail("unknown name '" + full + "'", nameLine);
             return {Type::VOID};
         }
@@ -846,7 +895,7 @@ struct Compiler {
             Type out;
             if (genericBuiltin(name, out)) return out;
             auto ni = vm.natByName.find(name);
-            if (ni != vm.natByName.end()) return callNative(ni->second);
+            if (ni != vm.natByName.end()) return callNative(ni->second, nameLine);
             auto fi = vm.fnByName.find(name);
             if (fi != vm.fnByName.end()) return callFunction(fi->second);
             fail("unknown function '" + name +
@@ -1058,6 +1107,8 @@ struct Compiler {
     }
 
     void ifStmt() {
+        DepthGuard guard(*this);
+        if (!guard.ok) return;
         advance(); // if
         // narrowing pattern: IDENT != nil { ... }
         Local* narrowed = nullptr;
@@ -1133,6 +1184,7 @@ struct Compiler {
 
     void forStmt() {
         // for i in a..b { }   — i: num, [a, b)
+        const int loopLine = cur.line;
         advance();
         if (cur.kind != T_IDENT) { fail("expected a loop variable"); return; }
         std::string vn = cur.text;
@@ -1157,7 +1209,7 @@ struct Compiler {
         block();
         for (size_t at : loops.back().continues) patchJump(at);
         emit(OP_LOADL); emit((uint8_t)iSlot);
-        emit2(OP_CONST, addConstVal(Value::num(1)));
+        emit2(OP_CONST, addConstVal(Value::num(1), loopLine));
         emit(OP_ADD);
         emit(OP_STOREL); emit((uint8_t)iSlot);
         emitLoop(top);
@@ -1288,6 +1340,8 @@ struct Compiler {
     }
 
     void statement() {
+        DepthGuard guard(*this);
+        if (!guard.ok) return;
         switch (cur.kind) {
         case T_LET: letStmt(); return;
         case T_RECORD: recordStmt(); return;
@@ -1356,9 +1410,17 @@ struct Compiler {
 } // namespace
 
 bool compile(VM& vm, const std::string& src, const std::string& chunkName,
-             std::string& err) {
+             std::string& err, Diagnostic* diagnostic) {
+    if (diagnostic) *diagnostic = {};
+    if (src.size() > SOURCE_LIMIT_BYTES) {
+        const std::string message = "source exceeds 8388608 bytes";
+        if (diagnostic)
+            *diagnostic = {chunkName, 0, message, "compile", "WICK_SOURCE_LIMIT"};
+        err = chunkName + ":0: " + message;
+        return false;
+    }
     vm.chunkName = chunkName;
-    Compiler c(vm, src);
+    Compiler c(vm, src, diagnostic);
     if (!c.compileProgram()) {
         err = c.err;
         return false;

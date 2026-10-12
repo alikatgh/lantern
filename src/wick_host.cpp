@@ -9,6 +9,8 @@
 #include "../wick/wick.hpp"
 #include <cstdio>
 #include <fstream>
+#include <memory>
+#include <exception>
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
@@ -186,6 +188,23 @@ static bool registerLT(VM* vm, std::string& err) {
     wick::addConst(vm, "lt", "W", lt_screen_w());
     wick::addConst(vm, "lt", "H", lt_screen_h());
     return true;
+}
+
+bool checkWickSource(const std::string& source, const std::string& chunkName,
+                     wick::Diagnostic& diagnostic) {
+    try {
+        std::unique_ptr<VM, decltype(&wick::destroy)> environment(wick::create(),
+                                                               wick::destroy);
+        std::string err;
+        if (!registerLT(environment.get(), err)) {
+            diagnostic = {chunkName, 0, err, "host", "LANTERN_CHECK_HOST"};
+            return false;
+        }
+        return wick::check(environment.get(), source, chunkName, diagnostic);
+    } catch (const std::exception& error) {
+        diagnostic = {chunkName, 0, error.what(), "host", "LANTERN_CHECK_HOST"};
+        return false;
+    }
 }
 
 // ---- the dev loop (mirror of the Lua host) --------------------------------

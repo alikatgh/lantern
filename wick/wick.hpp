@@ -3,6 +3,7 @@
 // and run on a stack VM. No dependencies beyond the C++ standard library.
 // See docs/WICK.md for the language itself.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -42,7 +43,24 @@ bool addNative(VM* vm, const char* ns, const char* sig, NativeFn fn,
 // A compile-time numeric constant, e.g. lt.W = 400.
 void addConst(VM* vm, const char* ns, const char* name, double v);
 
+// Compile-only validation. A fresh temporary VM uses the environment's native
+// signatures and numeric constants, never its program or heap. No Wick code or
+// native is executed, and the environment (or process RNG) is not modified.
+// nullptr selects the builtin environment. line == 0 means unavailable.
+inline constexpr size_t SOURCE_LIMIT_BYTES = 8 * 1024 * 1024;
+inline constexpr unsigned COMPILE_DEPTH_LIMIT = 256;
+struct Diagnostic {
+    std::string file;
+    int line = 0;
+    std::string message;
+    std::string phase;
+    std::string code;
+};
+bool check(VM* environment, const std::string& source,
+           const std::string& chunkName, Diagnostic& diagnostic);
+
 // Compile + run top-level statements. On failure err is "name:line: msg".
+// Compilation shares the source, nesting and constant-pool limits of check().
 bool load(VM* vm, const std::string& source, const std::string& chunkName,
           std::string& err);
 // Call a global fn by name (no-op true if absent — update/draw optional).

@@ -129,7 +129,7 @@ struct VM {
 };
 
 bool compile(VM& vm, const std::string& src, const std::string& chunkName,
-             std::string& err);                      // wick_front.cpp
+             std::string& err, Diagnostic* diagnostic = nullptr); // wick_front.cpp
 bool run(VM& vm, int protoIdx, const Value* args, int argc, Value& out,
          std::string& err);                          // wick_vm.cpp
 

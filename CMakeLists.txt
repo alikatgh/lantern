@@ -119,3 +119,13 @@ add_test(NAME renderer_painted_alpha
         --kind painted_alpha --binary $<TARGET_FILE:lantern_painted_alpha_test>
         --scratch ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(renderer_hd renderer_painted_alpha PROPERTIES TIMEOUT 90 LABELS renderer)
+
+# Compile-only API and CLI checks do not initialize SDL/audio or execute Wick.
+add_executable(wick_check_test tests/wick_check_test.cpp)
+target_link_libraries(wick_check_test wick)
+target_compile_options(wick_check_test PRIVATE -Wall -Wextra)
+add_test(NAME wick_check_api COMMAND wick_check_test)
+add_test(NAME wick_check_cli
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_test.py
+        --binary $<TARGET_FILE:lantern> --scratch ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(wick_check_api wick_check_cli PROPERTIES TIMEOUT 30 LABELS check)

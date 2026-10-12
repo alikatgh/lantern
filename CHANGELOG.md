@@ -6,6 +6,22 @@ while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
 
 ## [Unreleased]
 
+### Wick compile validation
+
+- `lantern check --json <directory|source.wick>` validates with the real host
+  signatures before engine startup, without running top-level code or natives.
+  Versioned JSON diagnostics and exit codes distinguish compiler, usage and I/O
+  failures. Regular source reads are capped at 8 MiB; final symlinks are refused.
+- Public `wick::check` compiles in an isolated temporary VM, preserving caller
+  program, globals, stack, heap and RNG. Compiler failures carry structured
+  file/line/message metadata directly, alongside the legacy load error string.
+- Constant indices 0–65535 remain valid; entry 65,537 now fails before wrapping
+  in both check and load. Unterminated strings at EOF are rejected. A 256-entry
+  recursive parser budget returns a diagnostic for excessive nesting.
+- API/CLI regression tests cover non-execution and caller preservation, exact
+  diagnostics, JSON escaping, source limits, file policy and constant boundaries.
+  This is compile-only tooling; bounded untrusted execution is not implemented.
+
 ### Renderer
 
 - Opt-in `LANTERN_RENDER_SCALE=1..4` sets physical raster density at startup.
