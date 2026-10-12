@@ -97,3 +97,25 @@ add_test(NAME wick_bitlab COMMAND ${CMAKE_COMMAND} -E env
     LANTERN_FIXED_DT=1 LANTERN_SHOT_FRAME=2
     LANTERN_SHOT=${CMAKE_CURRENT_BINARY_DIR}/bitlab
     $<TARGET_FILE:lantern> ${CMAKE_CURRENT_SOURCE_DIR}/games/bitlab)
+
+# CPU renderer checks replace OS presentation/input with deterministic stubs.
+# The fixtures are generated in bounded temporary directories under the build.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_executable(lantern_hd_renderer_test tests/lantern-hd-renderer.cpp)
+target_include_directories(lantern_hd_renderer_test PRIVATE src)
+target_link_libraries(lantern_hd_renderer_test lantern_core)
+target_compile_options(lantern_hd_renderer_test PRIVATE -Wall -Wextra)
+add_executable(lantern_painted_alpha_test tests/lantern-painted-alpha.cpp)
+# Includes the real gfx.cpp once to inspect its internal loader/sampler without
+# adding any public renderer ABI. The normal host still links lantern_core.
+target_include_directories(lantern_painted_alpha_test PRIVATE src)
+target_compile_options(lantern_painted_alpha_test PRIVATE -Wall -Wextra)
+add_test(NAME renderer_hd
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/renderer_test.py
+        --kind hd --binary $<TARGET_FILE:lantern_hd_renderer_test>
+        --scratch ${CMAKE_CURRENT_BINARY_DIR})
+add_test(NAME renderer_painted_alpha
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/renderer_test.py
+        --kind painted_alpha --binary $<TARGET_FILE:lantern_painted_alpha_test>
+        --scratch ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(renderer_hd renderer_painted_alpha PROPERTIES TIMEOUT 90 LABELS renderer)

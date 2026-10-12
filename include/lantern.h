@@ -4,8 +4,9 @@
  * these; the bundled Lua host is itself a client of this header (dogfooding).
  *
  * Conventions:
- *  - The internal render target is ALWAYS 400x240 (lt_screen_w/h). 2D
- *    coordinates are pixels in that space, y-down. 3D is right-handed, y-up.
+ *  - Logical coordinates are ALWAYS 400x240 (lt_screen_w/h), y-down.
+ *    Opt-in raster density changes only framebuffer resolution. 3D is
+ *    right-handed, y-up; gameplay, cameras and touch stay in logical space.
  *  - Handles (mesh, texture, sound) are non-negative ints; -1 = none/failure.
  *  - Colors are floats 0..1.
  *  - Lighting is PER-VERTEX (gouraud) — the PICA200 idiom. Transparency in 3D
@@ -44,12 +45,15 @@ typedef void (*lt_draw_fn)(void);
 void   lt_run(lt_update_fn update, lt_draw_fn draw);
 /* Or drive the loop yourself:                                             */
 int    lt_frame_poll(void);       /* pump events; 0 = quit requested       */
-void   lt_frame_begin(void);      /* bind the 400x240 target               */
+void   lt_frame_begin(void);      /* begin target at selected raster density */
 void   lt_frame_end(void);        /* flush 2D, integer-blit, swap          */
 double lt_frame_dt(void);         /* seconds since previous poll (<=0.1)   */
 
 /* Environment contract (read at lt_boot, honored for EVERY host):
- *   LANTERN_SHOT=<prefix>     save <prefix>.bmp of the 400x240 frame at
+ *   LANTERN_RENDER_SCALE=1..4 physical raster density; default 1. Only a
+ *                             single ASCII digit is accepted; invalid
+ *                             values make boot fail before allocation.
+ *   LANTERN_SHOT=<prefix>     save <prefix>.bmp of the physical frame at
  *                             frame N, then request quit (CI screenshots)
  *   LANTERN_SHOT_FRAME=N      which frame to capture (default 60)
  *   LANTERN_FIXED_DT=<sec|1>  deterministic mode: lt_frame_dt and lt_time
@@ -61,7 +65,7 @@ double lt_frame_dt(void);         /* seconds since previous poll (<=0.1)   */
 int    lt_screen_w(void);         /* 400 */
 int    lt_screen_h(void);         /* 240 */
 void   lt_clear(float r, float g, float b);
-/* Save the current 400x240 frame (call after lt_frame_end). */
+/* Save the physical frame: 400*s by 240*s (call after lt_frame_end). */
 void   lt_screenshot(const char* bmp_path);
 
 /* ---- 3D camera / environment ------------------------------------------ */

@@ -1,5 +1,5 @@
 // gfx.hpp — the lantern renderer. As of v0.6 this is OUR OWN SOFTWARE
-// RASTERIZER: every pixel of the 400×240 frame is computed by this code —
+// RASTERIZER: every physical framebuffer pixel is computed by this code —
 // vertex transform, near-plane clipping, perspective-correct triangle
 // rasterization, depth buffer, bilinear texture sampling, per-vertex
 // lighting, fog, blending. No GPU API. SDL is presentation plumbing only.
@@ -11,7 +11,7 @@
 
 namespace lt {
 
-constexpr int SCREEN_W = 400;  // 3DS top screen — inviolable (docs/ENGINE.md)
+constexpr int SCREEN_W = 400;  // logical coordinates; independent of raster density
 constexpr int SCREEN_H = 240;
 constexpr int MAX_POINT_LIGHTS = 4;   // PICA200 had 4 hardware lights
 constexpr int VERT_FLOATS = 12;       // pos3 normal3 uv2 rgba4
@@ -19,12 +19,17 @@ constexpr int VERT_FLOATS = 12;       // pos3 normal3 uv2 rgba4
 struct TexClamp; // texel bounds for atlas-safe sampling (gfx.cpp)
 
 struct Gfx {
-    bool init();
+    bool init(int renderScale = 1);    // bounded 1..4; logical space stays 400x240
     void reset();                      // free all game meshes/textures/quads
                                        // (built-ins survive; hot-reload)
     void beginFrame();                 // clear color + depth, reset 2D batch
     void endFrame();                   // flush the 2D batch onto the frame
     const uint8_t* framebuffer() const { return fb_.data(); } // RGBA, top-down
+    int framebufferWidth() const { return frameW_; }
+    int framebufferHeight() const { return frameH_; }
+    int framebufferPitch() const { return frameW_ * 4; }
+    size_t framebufferSize() const { return fb_.size(); }
+    int renderScale() const { return renderScale_; }
 
     // ---- state ----
     void clear(float r, float g, float b);
@@ -111,7 +116,9 @@ struct Gfx {
     int  makeShadowTexture();
     const Tex* texFor(int tex) const;
 
-    std::vector<uint8_t> fb_;          // SCREEN_W*SCREEN_H*4, RGBA top-down
+    int renderScale_ = 1;
+    int frameW_ = SCREEN_W, frameH_ = SCREEN_H;
+    std::vector<uint8_t> fb_;          // frameW_*frameH_*4, RGBA top-down
     std::vector<float> depth_;
     std::vector<Tex> textures_;
     std::vector<Mesh> meshes_;

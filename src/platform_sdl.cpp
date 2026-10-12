@@ -1,6 +1,6 @@
 // platform_sdl.cpp — the SDL2 desktop backend (macOS today; the same file
 // is the template for any SDL-shaped port). Implements platform.hpp:
-// window + integer-scale presentation of the 400x240 frame, keyboard/
+// window + integer-scale presentation of the logical 400x240 frame, keyboard/
 // gamepad input, mouse-as-touch, the audio device, save-file paths.
 // NO rendering happens here — the frame arrives fully rasterized.
 #include "platform.hpp"
@@ -19,7 +19,8 @@ namespace {
 struct Plat {
     SDL_Window* win = nullptr;
     SDL_Renderer* ren = nullptr;      // presentation only — we never draw
-    SDL_Texture* frameTex = nullptr;  // the 400x240 frame our raster fills
+    SDL_Texture* frameTex = nullptr;  // physical target; logical viewport stays fixed
+    int frameW = SCREEN_W, frameH = SCREEN_H;
     SDL_GameController* pad = nullptr;
     const Uint8* keys = nullptr;
     SDL_AudioDeviceID audioDev = 0;
@@ -166,9 +167,34 @@ bool platPoll() {
     return !P.quit;
 }
 
-void platPresent(const uint8_t* fb) {
+void platPresent(const uint8_t* fb, int width, int height, int pitch) {
     if (!P.ren) return;
-    SDL_UpdateTexture(P.frameTex, nullptr, fb, SCREEN_W * 4);
+    if (!fb || width < SCREEN_W || width > SCREEN_W * 4 ||
+        width % SCREEN_W || height != SCREEN_H * (width / SCREEN_W) ||
+        pitch != width * 4) {
+        std::fprintf(stderr, "platPresent: invalid bounded framebuffer layout\n");
+        P.quit = true;
+        return;
+    }
+    if (width != P.frameW || height != P.frameH) {
+        SDL_Texture* next = SDL_CreateTexture(P.ren, SDL_PIXELFORMAT_ABGR8888,
+                                              SDL_TEXTUREACCESS_STREAMING,
+                                              width, height);
+        if (!next) {
+            std::fprintf(stderr, "SDL_CreateTexture HD: %s\n", SDL_GetError());
+            P.quit = true;
+            return;
+        }
+        SDL_DestroyTexture(P.frameTex);
+        P.frameTex = next;
+        P.frameW = width;
+        P.frameH = height;
+    }
+    if (SDL_UpdateTexture(P.frameTex, nullptr, fb, pitch) != 0) {
+        std::fprintf(stderr, "SDL_UpdateTexture: %s\n", SDL_GetError());
+        P.quit = true;
+        return;
+    }
     int dw, dh;
     SDL_GetRendererOutputSize(P.ren, &dw, &dh);
     SDL_Rect dst = dstRect(dw, dh);

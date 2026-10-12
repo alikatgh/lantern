@@ -78,10 +78,31 @@ static inline void sampleTex(const Gfx::Tex* t, float u, float v,
     const uint8_t* p10 = texelAt(t, x0 + 1, y0, c);
     const uint8_t* p01 = texelAt(t, x0, y0 + 1, c);
     const uint8_t* p11 = texelAt(t, x0 + 1, y0 + 1, c);
-    for (int i = 0; i < 4; i++) {
-        float top = p00[i] + (p10[i] - p00[i]) * ax;
-        float bot = p01[i] + (p11[i] - p01[i]) * ax;
-        out[i] = (top + (bot - top) * ay) / 255.0f;
+    if (p00[3] == 255 && p10[3] == 255 && p01[3] == 255 && p11[3] == 255) {
+        // Preserve the original arithmetic exactly for opaque artwork.
+        for (int i = 0; i < 4; i++) {
+            float top = p00[i] + (p10[i] - p00[i]) * ax;
+            float bot = p01[i] + (p11[i] - p01[i]) * ax;
+            out[i] = (top + (bot - top) * ay) / 255.0f;
+        }
+        return;
+    }
+    const float topA = p00[3] + (p10[3] - p00[3]) * ax;
+    const float botA = p01[3] + (p11[3] - p01[3]) * ax;
+    const float alpha = topA + (botA - topA) * ay;
+    out[3] = alpha / 255.0f;
+    if (alpha <= 0.0f) {
+        out[0] = out[1] = out[2] = 0.0f;
+        return;
+    }
+    // Filter premultiplied color so invisible RGB cannot fringe the edge.
+    // Return straight RGB: both rasterizers apply the sampled alpha once.
+    for (int i = 0; i < 3; i++) {
+        const float c00 = p00[i] * p00[3], c10 = p10[i] * p10[3];
+        const float c01 = p01[i] * p01[3], c11 = p11[i] * p11[3];
+        const float top = c00 + (c10 - c00) * ax;
+        const float bot = c01 + (c11 - c01) * ax;
+        out[i] = (top + (bot - top) * ay) / (alpha * 255.0f);
     }
 }
 
@@ -126,9 +147,13 @@ int Gfx::makeShadowTexture() {
     return (int)textures_.size() - 1;
 }
 
-bool Gfx::init() {
-    fb_.assign((size_t)SCREEN_W * SCREEN_H * 4, 0);
-    depth_.assign((size_t)SCREEN_W * SCREEN_H, 1.0f);
+bool Gfx::init(int renderScale) {
+    if (renderScale < 1 || renderScale > 4) return false;
+    renderScale_ = renderScale;
+    frameW_ = SCREEN_W * renderScale_;
+    frameH_ = SCREEN_H * renderScale_;
+    fb_.assign((size_t)frameW_ * frameH_ * 4, 0);
+    depth_.assign((size_t)frameW_ * frameH_, 1.0f);
     Tex white;
     white.w = white.h = 1;
     white.nearest = true; // 1x1: bilinear's 4 taps are identical, skip them
@@ -344,10 +369,10 @@ void Gfx::rasterTri(const PVert& A, const PVert& B, const PVert& C,
                     RasterMode mode) {
     // to screen space; keep 1/w for perspective-correct interpolation
     struct SV { float x, y, z, iw, u, v, r, g, b, a, fog; };
-    auto toScreen = [](const PVert& p, SV& s) {
+    auto toScreen = [this](const PVert& p, SV& s) {
         float iw = 1.0f / p.w;
-        s.x = (p.x * iw * 0.5f + 0.5f) * SCREEN_W;
-        s.y = (1.0f - (p.y * iw * 0.5f + 0.5f)) * SCREEN_H;
+        s.x = (p.x * iw * 0.5f + 0.5f) * frameW_;
+        s.y = (1.0f - (p.y * iw * 0.5f + 0.5f)) * frameH_;
         s.z = p.z * iw;                 // NDC z, affine in screen space
         s.iw = iw;
         s.u = p.u * iw; s.v = p.v * iw; // attrs pre-divided by w
@@ -372,9 +397,9 @@ void Gfx::rasterTri(const PVert& A, const PVert& B, const PVert& C,
     const bool own0 = owns(b, c), own1 = owns(c, a), own2 = owns(a, b);
 
     int x0 = std::max(0, (int)std::floor(std::min({a.x, b.x, c.x})));
-    int x1 = std::min(SCREEN_W - 1, (int)std::ceil(std::max({a.x, b.x, c.x})));
+    int x1 = std::min(frameW_ - 1, (int)std::ceil(std::max({a.x, b.x, c.x})));
     int y0 = std::max(0, (int)std::floor(std::min({a.y, b.y, c.y})));
-    int y1 = std::min(SCREEN_H - 1, (int)std::ceil(std::max({a.y, b.y, c.y})));
+    int y1 = std::min(frameH_ - 1, (int)std::ceil(std::max({a.y, b.y, c.y})));
     if (x0 > x1 || y0 > y1) return;
 
     auto edge = [](const SV& p, const SV& q, float px, float py) {
@@ -383,8 +408,8 @@ void Gfx::rasterTri(const PVert& A, const PVert& B, const PVert& C,
 
     for (int y = y0; y <= y1; y++) {
         float py = y + 0.5f;
-        uint8_t* row = &fb_[((size_t)y * SCREEN_W + x0) * 4];
-        float* drow = &depth_[(size_t)y * SCREEN_W + x0];
+        uint8_t* row = &fb_[((size_t)y * frameW_ + x0) * 4];
+        float* drow = &depth_[(size_t)y * frameW_ + x0];
         for (int x = x0; x <= x1; x++, row += 4, drow++) {
             float px = x + 0.5f;
             float w0 = edge(b, c, px, py);
@@ -622,7 +647,8 @@ int maskShift(uint32_t m) { // bit offset of a channel mask; 0 mask -> -1
 }
 
 bool loadBmpFile(const std::string& path, int& w, int& h,
-                 std::vector<uint8_t>& rgba) {
+                 std::vector<uint8_t>& rgba, bool& explicitAlpha) {
+    explicitAlpha = false;
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return false;
     std::fseek(f, 0, SEEK_END);
@@ -664,6 +690,7 @@ bool loadBmpFile(const std::string& path, int& w, int& h,
     }
     const int sr = maskShift(mr), sg = maskShift(mg), sb = maskShift(mb),
               sa = maskShift(ma);
+    explicitAlpha = ma != 0;
 
     const size_t rowBytes = ((size_t)bw * (bpp / 8) + 3) & ~(size_t)3;
     if ((size_t)dataOff + rowBytes * bh > d.size()) return false;
@@ -697,14 +724,15 @@ bool loadBmpFile(const std::string& path, int& w, int& h,
 
 int Gfx::loadTexture(const std::string& bmpPath, int* outW, int* outH) {
     Tex t;
-    if (!loadBmpFile(bmpPath, t.w, t.h, t.px)) {
+    bool explicitAlpha = false;
+    if (!loadBmpFile(bmpPath, t.w, t.h, t.px, explicitAlpha)) {
         std::fprintf(stderr, "load_texture: cannot read %s\n",
                      bmpPath.c_str());
         return -1;
     }
-    // Retro color key: pure magenta (255,0,255) → transparent.
+    // Alpha-less retro BMPs key pure magenta; explicit RGBA owns every color.
     bool keyed = false;
-    for (size_t i = 0; i < t.px.size(); i += 4)
+    if (!explicitAlpha) for (size_t i = 0; i < t.px.size(); i += 4)
         if (t.px[i] == 255 && t.px[i + 1] == 0 && t.px[i + 2] == 255) {
             t.px[i + 3] = 0;
             keyed = true;
@@ -760,6 +788,10 @@ void Gfx::pushQuad(int tex, float x, float y, float w, float h, float u0,
         {x + w, y + h, u1, v1, r, g, b, a}, {x,     y + h, u0, v1, r, g, b, a},
     };
     std::memcpy(q.v, src, sizeof src);
+    // Only raster positions change density; logical geometry and UVs do not.
+    // The scale-1 branch preserves the original floating-point operation path.
+    if (renderScale_ != 1)
+        for (auto& v : q.v) { v[0] *= renderScale_; v[1] *= renderScale_; }
     quads_.push_back(q);
 }
 
@@ -782,6 +814,10 @@ void Gfx::pushQuadRot(int tex, float cx, float cy, float w, float h,
         {p2[0], p2[1], u1, v1, r, g, b, a}, {p3[0], p3[1], u0, v1, r, g, b, a},
     };
     std::memcpy(q.v, src, sizeof src);
+    // Only raster positions change density; logical geometry and UVs do not.
+    // The scale-1 branch preserves the original floating-point operation path.
+    if (renderScale_ != 1)
+        for (auto& v : q.v) { v[0] *= renderScale_; v[1] *= renderScale_; }
     quads_.push_back(q);
 }
 
@@ -851,9 +887,9 @@ void Gfx::raster2DTri(const float* v0, const float* v1, const float* v2,
     float miny = std::min({v0[1], v1[1], v2[1]});
     float maxy = std::max({v0[1], v1[1], v2[1]});
     int x0 = std::max(0, (int)std::floor(minx));
-    int x1 = std::min(SCREEN_W - 1, (int)std::ceil(maxx));
+    int x1 = std::min(frameW_ - 1, (int)std::ceil(maxx));
     int y0 = std::max(0, (int)std::floor(miny));
-    int y1 = std::min(SCREEN_H - 1, (int)std::ceil(maxy));
+    int y1 = std::min(frameH_ - 1, (int)std::ceil(maxy));
     if (x0 > x1 || y0 > y1) return;
 
     float area = (v1[0] - v0[0]) * (v2[1] - v0[1]) -
@@ -870,7 +906,7 @@ void Gfx::raster2DTri(const float* v0, const float* v1, const float* v2,
 
     for (int y = y0; y <= y1; y++) {
         float py = y + 0.5f;
-        uint8_t* row = &fb_[((size_t)y * SCREEN_W + x0) * 4];
+        uint8_t* row = &fb_[((size_t)y * frameW_ + x0) * 4];
         for (int x = x0; x <= x1; x++, row += 4) {
             float px = x + 0.5f;
             float w0 = (v2[0] - v1[0]) * (py - v1[1]) -
@@ -925,15 +961,15 @@ void Gfx::reset() {
 
 void Gfx::screenshot(const std::string& bmpPath) {
     // our own writer: 24-bit bottom-up BI_RGB — opens everywhere
-    const int rowBytes = (SCREEN_W * 3 + 3) & ~3;
-    const uint32_t dataSize = (uint32_t)rowBytes * SCREEN_H;
+    const int rowBytes = (frameW_ * 3 + 3) & ~3;
+    const uint32_t dataSize = (uint32_t)rowBytes * frameH_;
     uint8_t hdr[54] = {0};
     hdr[0] = 'B'; hdr[1] = 'M';
     const uint32_t fileSize = 54 + dataSize;
     std::memcpy(&hdr[2], &fileSize, 4);
     hdr[10] = 54;               // pixel data offset
     hdr[14] = 40;               // BITMAPINFOHEADER
-    const int32_t bw = SCREEN_W, bh = SCREEN_H;
+    const int32_t bw = frameW_, bh = frameH_;
     std::memcpy(&hdr[18], &bw, 4);
     std::memcpy(&hdr[22], &bh, 4);
     hdr[26] = 1;                // planes
@@ -947,9 +983,9 @@ void Gfx::screenshot(const std::string& bmpPath) {
     }
     std::fwrite(hdr, 1, sizeof hdr, f);
     std::vector<uint8_t> row((size_t)rowBytes, 0);
-    for (int y = SCREEN_H - 1; y >= 0; y--) { // bottom-up
-        const uint8_t* src = &fb_[(size_t)y * SCREEN_W * 4];
-        for (int x = 0; x < SCREEN_W; x++) {  // RGBA -> BGR
+    for (int y = frameH_ - 1; y >= 0; y--) { // bottom-up
+        const uint8_t* src = &fb_[(size_t)y * frameW_ * 4];
+        for (int x = 0; x < frameW_; x++) {  // RGBA -> BGR
             row[x * 3 + 0] = src[x * 4 + 2];
             row[x * 3 + 1] = src[x * 4 + 1];
             row[x * 3 + 2] = src[x * 4 + 0];
