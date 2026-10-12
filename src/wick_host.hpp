@@ -7,7 +7,8 @@
 //    each Frame; Frame spans lt_frame_begin..end plus the wick GC.
 #pragma once
 #include <string>
-#include "../wick/wick.hpp"
+
+namespace wick { struct Diagnostic; }
 
 // Register the same lt.* signatures as the runtime, then compile only.
 bool checkWickSource(const std::string& source, const std::string& chunkName,

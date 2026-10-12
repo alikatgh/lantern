@@ -121,6 +121,9 @@ add_test(NAME renderer_painted_alpha
 set_tests_properties(renderer_hd renderer_painted_alpha PROPERTIES TIMEOUT 90 LABELS renderer)
 
 # Compile-only API and CLI checks do not initialize SDL/audio or execute Wick.
+add_executable(wick_host_header_test tests/wick_host_header_test.cpp)
+target_compile_options(wick_host_header_test PRIVATE -Wall -Wextra)
+add_test(NAME wick_host_header COMMAND wick_host_header_test)
 add_executable(wick_check_test tests/wick_check_test.cpp)
 target_link_libraries(wick_check_test wick)
 target_compile_options(wick_check_test PRIVATE -Wall -Wextra)

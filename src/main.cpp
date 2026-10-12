@@ -8,6 +8,7 @@
 #include "package.hpp"
 #include "path_sandbox.hpp"
 #include "wick_host.hpp"
+#include "../wick/wick.hpp"
 extern "C" {
 #include <lua.h>
 #include <lualib.h>
