@@ -7,7 +7,10 @@
 #include "lantern.h"
 #include "path_sandbox.hpp"
 #include "../wick/wick.hpp"
+#include <algorithm>
 #include <cstdio>
+#include <cmath>
+#include <limits>
 #include <fstream>
 #include <memory>
 #include <exception>
@@ -104,10 +107,89 @@ static Value wLoadSound(VM& vm, const Value* a, int) {
     if (id < 0) wick::setError(vm, "load_sound failed: " + wick::getStr(a[0]));
     return Value::num(id);
 }
-static Value wPlay(VM&, const Value* a, int) { return Value::num(lt_sound_play((int)a[0].d, NARG(1), a[2].d != 0)); }
-static Value wStop(VM&, const Value* a, int) { lt_sound_stop((int)a[0].d); return Value::nil(); }
-static Value wChanVol(VM&, const Value* a, int) { lt_channel_volume((int)a[0].d, NARG(1)); return Value::nil(); }
-static Value wVolume(VM&, const Value* a, int) { lt_master_volume(NARG(0)); return Value::nil(); }
+// Validate doubles before narrowing to int/float. Typed signatures reject
+// wrong Wick types at compile time; these guards also protect direct embedding.
+static bool audioNumber(VM& vm, const Value& a, double low, double high,
+                        bool integral, const char* operation) {
+    if (a.tag == Value::NUM && std::isfinite(a.d) && a.d >= low && a.d <= high &&
+        (!integral || std::trunc(a.d) == a.d)) return true;
+    wick::setError(vm, std::string(operation) + ": invalid audio argument");
+    return false;
+}
+static bool audioId(VM& vm, const Value& a, const char* operation) {
+    return audioNumber(vm, a, -1, std::numeric_limits<int>::max(), true, operation);
+}
+static bool audioGain(VM& vm, const Value& a, const char* operation) {
+    return audioNumber(vm, a, 0, 1, false, operation);
+}
+static bool audioTime(VM& vm, const Value& a, const char* operation) {
+    return audioNumber(vm, a, 0, 60, false, operation);
+}
+static bool audioFlag(VM& vm, const Value& a, const char* operation) {
+    return audioNumber(vm, a, 0, 1, true, operation);
+}
+static Value wTryLoadSound(VM& vm, const Value* a, int) {
+    std::string p;
+    if (!resolvePath(vm, wick::getStr(a[0]), p)) return Value::num(-1);
+    return Value::num(lt_sound_load(p.c_str()));
+}
+static Value wPlay(VM& vm, const Value* a, int) {
+    const double gainLimit = double(std::numeric_limits<float>::max()) / 16;
+    if (!audioId(vm, a[0], "play") || !audioNumber(vm, a[1], -gainLimit, gainLimit, false, "play") ||
+        !audioNumber(vm, a[2], -std::numeric_limits<double>::max(),
+                     std::numeric_limits<double>::max(), false, "play")) return Value::num(-1);
+    return Value::num(lt_sound_play((int)a[0].d, NARG(1), a[2].d != 0));
+}
+static Value wStop(VM& vm, const Value* a, int) {
+    if (audioId(vm, a[0], "stop")) lt_sound_stop((int)a[0].d);
+    return Value::nil();
+}
+static Value wChanVol(VM& vm, const Value* a, int) {
+    if (audioId(vm, a[0], "channel_volume") && audioNumber(vm, a[1],
+        -std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), false, "channel_volume"))
+        lt_channel_volume((int)a[0].d, float(std::clamp(a[1].d, 0.0, 1.0)));
+    return Value::nil();
+}
+static Value wVolume(VM& vm, const Value* a, int) {
+    if (audioNumber(vm, a[0], -std::numeric_limits<double>::max(),
+                    std::numeric_limits<double>::max(), false, "volume"))
+        lt_master_volume(float(std::clamp(a[0].d, 0.0, 1.0)));
+    return Value::nil();
+}
+static Value wUnloadSound(VM& vm, const Value* a, int) {
+    return Value::boolean(audioId(vm, a[0], "sound_unload") && lt_sound_unload((int)a[0].d));
+}
+static Value wVoicePlay(VM& vm, const Value* a, int) {
+    if (!audioId(vm, a[0], "voice_play") || !audioNumber(vm, a[1], 0, 2, true, "voice_play") ||
+        !audioGain(vm, a[2], "voice_play") || !audioFlag(vm, a[3], "voice_play") ||
+        !audioTime(vm, a[4], "voice_play")) return Value::num(-1);
+    return Value::num(lt_voice_play((int)a[0].d, (int)a[1].d, NARG(2), (int)a[3].d, NARG(4)));
+}
+static Value wVoiceStop(VM& vm, const Value* a, int) {
+    return Value::boolean(audioId(vm, a[0], "voice_stop") && audioTime(vm, a[1], "voice_stop") &&
+                          lt_voice_stop((int)a[0].d, NARG(1)));
+}
+static Value wVoicePause(VM& vm, const Value* a, int) {
+    return Value::boolean(audioId(vm, a[0], "voice_pause") && audioFlag(vm, a[1], "voice_pause") &&
+                          lt_voice_pause((int)a[0].d, (int)a[1].d));
+}
+static Value wVoiceActive(VM& vm, const Value* a, int) {
+    return Value::boolean(audioId(vm, a[0], "voice_active") && lt_voice_active((int)a[0].d));
+}
+static Value wMusic(VM& vm, const Value* a, int) {
+    if (!audioId(vm, a[0], "music") || !audioGain(vm, a[1], "music") ||
+        !audioFlag(vm, a[2], "music") || !audioTime(vm, a[3], "music")) return Value::num(-1);
+    return Value::num(lt_music((int)a[0].d, NARG(1), (int)a[2].d, NARG(3)));
+}
+static Value wBusVolume(VM& vm, const Value* a, int) {
+    return Value::boolean(audioNumber(vm, a[0], 0, 2, true, "bus_volume") &&
+        audioGain(vm, a[1], "bus_volume") && audioTime(vm, a[2], "bus_volume") &&
+        lt_bus_volume((int)a[0].d, NARG(1), NARG(2)));
+}
+static Value wDucking(VM& vm, const Value* a, int) {
+    return Value::boolean(audioGain(vm, a[0], "ducking") && audioTime(vm, a[1], "ducking") &&
+        audioTime(vm, a[2], "ducking") && lt_ducking(NARG(0), NARG(1), NARG(2)));
+}
 static Value wSave(VM&, const Value* a, int) {
     std::string d = wick::getStr(a[1]);
     return Value::boolean(
@@ -172,6 +254,15 @@ static bool registerLT(VM* vm, std::string& err) {
         {"touch_y(): num", wTouchY},
         {"rumble(num, num, num)", wRumble},
         {"load_sound(str): num", wLoadSound},
+        {"try_load_sound(str): num", wTryLoadSound},
+        {"sound_unload(num): bool", wUnloadSound},
+        {"voice_play(num, num=0, num=1, num=0, num=0): num", wVoicePlay},
+        {"voice_stop(num, num=0): bool", wVoiceStop},
+        {"voice_pause(num, num=1): bool", wVoicePause},
+        {"voice_active(num): bool", wVoiceActive},
+        {"music(num, num=1, num=1, num=0.5): num", wMusic},
+        {"bus_volume(num, num, num=0): bool", wBusVolume},
+        {"ducking(num, num=0.08, num=0.3): bool", wDucking},
         {"play(num, num=1, num=0): num", wPlay},
         {"stop(num)", wStop},
         {"channel_volume(num, num)", wChanVol},
@@ -187,6 +278,9 @@ static bool registerLT(VM* vm, std::string& err) {
         if (!wick::addNative(vm, "lt", r.sig, r.fn, err)) return false;
     wick::addConst(vm, "lt", "W", lt_screen_w());
     wick::addConst(vm, "lt", "H", lt_screen_h());
+    wick::addConst(vm, "lt", "SFX", LT_BUS_SFX);
+    wick::addConst(vm, "lt", "MUSIC", LT_BUS_MUSIC);
+    wick::addConst(vm, "lt", "SPEECH", LT_BUS_SPEECH);
     return true;
 }
 

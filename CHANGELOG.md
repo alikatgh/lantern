@@ -6,6 +6,27 @@ while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
 
 ## [Unreleased]
 
+### Native audio
+
+- Add three independent SFX/music/speech buses, sample-clock gain ramps, stable
+  voice handles, pause/resume, fade-stop, equal-power music replacement and
+  audible-speech music ducking in the C ABI and typed Wick host. Legacy channel
+  playback retains its default mix and bypasses the additive bus controls.
+- Add optional `lt.try_load_sound` and bounded `sound_unload` for per-line
+  dialogue caches. Unload refuses active/paused data; stale voice and sound IDs
+  never alias replacements, including after reload/shutdown. Exhaustion fails.
+- Harden WAV decoding with regular-file checks, exact RIFF/chunk/frame validation,
+  finite normalized float samples, 8–192 kHz input, checked resampling expansion,
+  64 MiB per decoded asset, 128 MiB aggregate and 256 loaded assets. Device failure
+  remains nonfatal. All asset I/O/allocation/deallocation stays off the callback.
+- Add deterministic signal tests against the real mixer/C ABI/Wick registry for
+  bus isolation, fades/equal-power crossfades, duck attack/release, exact paused
+  position, lifetime/stale handles, saturation/exhaustion, malformed/expanding
+  WAV bounds, optional media and concurrent control/reset. These replace the OS
+  backend only; native hardware playback and AI-authored content are not proven.
+- This increment plays reviewed local WAVs; model inference, network access,
+  streaming and compressed codecs are outside the runtime.
+
 ### Wick compile validation
 
 - `lantern check --json <directory|source.wick>` validates with the real host

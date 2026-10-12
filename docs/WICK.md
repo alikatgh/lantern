@@ -204,3 +204,100 @@ Compile-only validation does not establish that a program will terminate, stay
 within runtime memory, or render correctly. Instruction/call/heap budgets,
 per-VM RNG, state inspection and deterministic input/save tooling remain future
 work; no complete agent execution sandbox or native/mobile validation is claimed.
+
+## Native audio buses and stable voices
+
+Dialogue lines and music are ordinary local WAV assets. Lantern owns loading,
+resampling and the mixer; it does not run speech/music models or make network
+requests. Authored VoiceStudio dialogue and YuE music can be prepared outside
+of the engine, reviewed, then packaged as WAVs. Subtitles and game progression
+should continue when optional media is missing or the device is unavailable.
+
+```wick
+let line = lt.try_load_sound("audio/dialogue/arrival.wav")
+let speaking = -1
+if line >= 0 { speaking = lt.voice_play(line, lt.SPEECH) }
+lt.ducking(0.3, 0.08, 0.3)
+let score = lt.try_load_sound("audio/music/north.wav")
+let music = -1
+if score >= 0 { music = lt.music(score, 0.7, 1, 1.5) }
+// When dialogue ends/skips, stop before releasing its decoded storage.
+if lt.voice_active(speaking) { lt.voice_stop(speaking) }
+if line >= 0 { lt.sound_unload(line) }
+```
+
+The runtime and `lantern check` expose the same typed signatures and constants:
+
+| Wick call | Result and behavior |
+|---|---|
+| `lt.try_load_sound(path: str)` | `num`: sound ID, or -1 for missing/invalid/over-budget WAV. Sandbox violations still raise a runtime error. `lt.load_sound` retains its explicit load-failure error. |
+| `lt.sound_unload(sound: num)` | `bool`: frees an unused sound on the calling thread. Refuses active or paused users. Completed/stopped voices no longer retain it. |
+| `lt.voice_play(sound, bus=0, volume=1, loop=0, fade_seconds=0)` | `num`: a new stable positive voice handle, or -1. `lt.SFX=0`, `lt.MUSIC=1`, `lt.SPEECH=2`. Initial fade is linear. |
+| `lt.voice_stop(voice, fade_seconds=0)` | `bool`: immediate stop, or linear fade from the current gain to silence and retirement. |
+| `lt.voice_pause(voice, paused=1)` | `bool`: 1 pauses, 0 resumes. Pausing emits silence and freezes both sample position and that voice's fade. |
+| `lt.voice_active(voice)` | `bool`: true for playing, fading and paused voices. False after stop/completion/reset, or for an unknown handle. |
+| `lt.music(sound, volume=1, loop=1, crossfade_seconds=0.5)` | `num`: starts a music-bus voice and replaces all other new music-bus voices atomically on the mixer sample clock. |
+| `lt.bus_volume(bus, volume, ramp_seconds=0)` | `bool`: independent linear bus-gain ramp; SFX, music and speech default to 1. |
+| `lt.ducking(music_level, attack_seconds=0.08, release_seconds=0.3)` | `bool`: music gain while speech is audible, and linear attack/release times. Default level 1 disables attenuation. |
+
+Numeric handles and bus IDs must be finite integral values in the C `int`
+range; -1 is an accepted unavailable-handle sentinel. New loop/pause flags must
+be exactly 0 or 1. Gains are finite 0..1, times finite 0..60 seconds. Wick
+validates before narrowing numbers and reports `invalid audio argument` for
+out-of-domain values; wrong argument types/arity fail compilation. C play/music
+return -1, controls return 0 for invalid inputs, and leave existing state intact.
+A valid unknown handle returns false without a Wick error. Ramp times round to
+the nearest 48 kHz frame, with any positive time using at least one frame; each
+ramp advances before mixing a sample and reaches its target on the final frame.
+
+All old and new playback shares 16 mixer slots. A paused voice retains its slot
+and asset. Positive voice handles and nonnegative sound IDs are monotonic for
+the process lifetime, including hot reload and shutdown/restart; terminal `int`
+exhaustion fails instead of wrapping. A stale stable handle cannot stop or pause
+a reused slot. Legacy `lt.play`, `lt.stop`, `lt.channel_volume` and `lt.volume`
+remain available. Legacy playback retains channel IDs 0..15 and its ordinary
+volume/master mix, bypassing the new buses/ducking. Legacy channel controls
+cannot manipulate new voices; do not pass stable handles to those old controls.
+
+Music replacement uses equal-power sine/cosine envelopes, with no update-loop
+timing or game-side gain steps. Independent equal-level outgoing/incoming
+signals preserve summed power through the transition; correlated signals can
+still sum louder and the final stereo mix is clipped to -1..1. A crossfade
+reserves its new slot before changing outgoing voices: invalid assets, a silent
+device, ID exhaustion or a full pool leave the old music unchanged. A paused
+outgoing music voice is already silent and retires immediately on replacement.
+An ordinary fade-stop of a paused voice waits until resume; use a zero-second
+stop to discard it immediately. Pausing a crossfading incoming voice freezes its
+envelope; other voices and global bus/duck ramps continue on the audio clock.
+
+Ducking responds to an unpaused speech voice whose current sample, voice gain,
+speech bus and master gain make a nonzero contribution. Zero samples, zero gain,
+muted buses, pause, stop and completion release it. Several speech voices use
+one shared music attenuation rather than multiplying it. SFX, speech itself and
+legacy channels are unaffected. Attack/release begin on the corresponding sample;
+a new level retargets on the next sample, while changed times apply to the next
+transition. This is signal-triggered ducking; recorded silent gaps can release
+the music, so choose release time for the pacing of the recording.
+
+Hot reload/resource reset stops all voices, unloads every sound, and restores
+bus gains and ducking defaults while preserving legacy master volume. Shutdown
+stops/joins the device callback before resetting assets, and restores master 1.
+Decoding is serialized with device start/shutdown and remains outside the mixer
+lock; a concurrent resource reset discards any in-flight decode. Render/control,
+unload and reset share a mutex. The callback performs no file access, allocations
+or asset deallocation. Device-start failure remains a silent, nonfatal engine;
+play returns -1 instead of creating a fake active handle.
+
+WAV decoding accepts regular RIFF/WAVE files only: PCM 8/16/24/32 or IEEE float32,
+mono/stereo, 8–192 kHz, converted to 48 kHz stereo with linear interpolation.
+RIFF/chunk lengths, padding, frame/block alignment and byte rate must agree.
+All float samples, including skipped resampling inputs, must be finite -1..1.
+Limits are 64 MiB encoded input, 64 MiB decoded per sound, 128 MiB aggregate
+decoded samples and 256 simultaneously loaded sounds. Output size is checked
+before the expansion allocation; serialized loads also bound transient decode
+storage to one encoded input and one decoded asset. An unloaded slot and its
+byte allowance can be reused without reusing its public ID. At 48 kHz stereo,
+64 MiB holds about 174 seconds: **streaming and compressed codecs are not yet
+implemented**. Use shorter reviewed music cues and a bounded per-line dialogue
+cache. A generated test-tone/PCM fixture is test material only, never authored
+AI dialogue or music.

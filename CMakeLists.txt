@@ -132,3 +132,11 @@ add_test(NAME wick_check_cli
     COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_test.py
         --binary $<TARGET_FILE:lantern> --scratch ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(wick_check_api wick_check_cli PROPERTIES TIMEOUT 30 LABELS check)
+
+# Native audio signal/loader tests use the real mixer, ABI and Wick registry,
+# replacing only the OS backend. No SDL window/audio device or AI media needed.
+add_executable(lantern_native_audio_test tests/native_audio_test.cpp src/path_sandbox.cpp)
+target_link_libraries(lantern_native_audio_test lantern_core wick)
+target_compile_options(lantern_native_audio_test PRIVATE -Wall -Wextra)
+add_test(NAME native_audio COMMAND lantern_native_audio_test ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(native_audio PROPERTIES TIMEOUT 30 LABELS audio)
