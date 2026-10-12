@@ -46,6 +46,34 @@ the real CPU framebuffer is what the engine screenshot-tests in CI.
   60 frames (override with `LANTERN_SHOT_FRAME=N`), saves the physical
   framebuffer as BMP, exits — screenshot your game in CI.
 
+## Compile-only Wick checks
+
+```sh
+./build/lantern check --json path/to/game
+./build/lantern check --json path/to/source.wick
+```
+
+This command compiles with the real Lantern `lt.*` signatures and Wick builtins,
+then exits. It runs before package extraction, SDL/audio initialization or game
+loading. It never executes top-level statements, native functions, asset loads
+or saves. A directory selects `main.wick`; an explicit source must have the
+`.wick` extension. `.lant` checks are not supported in this increment.
+
+Stdout contains one `lantern.check.v1` JSON object. Exit 0 means compilation
+succeeded, 1 means a compiler error, and 2 means usage, source I/O or host failure.
+Diagnostics include stable codes, phase, file, line and message; an unavailable
+file/line is `null`. Paths are resolved through ancestor aliases, but a final
+source symlink is rejected. Only regular files are read, with an 8 MiB limit.
+Compiler nesting is bounded to 256 recursive parser entries and the constant
+pool accepts indices 0–65535, rejecting the next entry before it can wrap.
+
+The public `wick::check` API uses a temporary VM with native signature metadata
+and numeric constants; it preserves the caller's program, globals, stack, heap
+and RNG state. It is compile validation, not a sandbox for executing untrusted
+Wick: runtime instruction, call and heap budgets, per-VM RNG and state inspection
+are separate future work. Other existing bytecode operand limits are unchanged.
+See [docs/WICK.md](docs/WICK.md#compile-only-validation) for the schema and API.
+
 ## Build & run
 
 ```sh

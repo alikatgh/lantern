@@ -8,6 +8,12 @@
 #pragma once
 #include <string>
 
+namespace wick { struct Diagnostic; }
+
+// Register the same lt.* signatures as the runtime, then compile only.
+bool checkWickSource(const std::string& source, const std::string& chunkName,
+                     wick::Diagnostic& diagnostic);
+
 int runWickHost(const std::string& gameDir);
 
 bool wickHostInit(const std::string& gameDir); // after lt_boot

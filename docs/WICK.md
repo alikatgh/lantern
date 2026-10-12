@@ -140,3 +140,67 @@ Every one of those is addable behind the same typed front end — when a game
 pays the cost. The bar: run real lantern games (Lantern Night, KORA), catch
 the bug classes Lua couldn't, stay small enough to read in an afternoon
 (a small dependency-free implementation).
+
+## Compile-only validation
+
+`lantern check --json <directory|source.wick>` is a non-executing entry point.
+It uses the same `lt.*` registration as the runtime, so native argument/default
+checking does not depend on a second signature list. It selects `main.wick` for
+a directory or reads an explicit `.wick` regular file. It does not read `.lant`
+packages, initialize a platform, load assets or touch saves. Invalid check
+arguments return usage failure rather than being interpreted as game paths.
+
+Example success (the source path is resolved at runtime):
+
+```json
+{"schema":"lantern.check.v1","ok":true,"language":"wick","source":"/games/demo/main.wick","diagnostics":[]}
+```
+
+A failure has one diagnostic with `severity: "error"`, `phase`, `code`, `file`,
+`line` and `message`. `source`/`file` are `null` if unresolved and `line` is `null`
+if unavailable. Compiler file, line and message come directly from the failing
+compiler operation, not by parsing its legacy formatted error string. Valid
+Unicode and quotes, backslashes, newlines and control characters are JSON escaped.
+Invalid UTF-8 bytes are represented as byte-valued Unicode escapes.
+
+| Exit | Meaning | Codes |
+|---|---|---|
+| 0 | Compilation succeeded | Empty diagnostics |
+| 1 | Compilation failed (`compile`) | `WICK_COMPILE_ERROR`, `WICK_SOURCE_LIMIT`, `WICK_CONSTANT_LIMIT`, `WICK_COMPLEXITY_LIMIT` |
+| 2 | Usage (`usage`), file policy/read (`io`) or environment (`host`) failure | `LANTERN_CHECK_USAGE`, `LANTERN_CHECK_SOURCE`, `LANTERN_CHECK_IO`, `WICK_SOURCE_LIMIT`, `LANTERN_CHECK_HOST` |
+
+The source read opens with `O_NOFOLLOW`, `O_NONBLOCK` and `O_CLOEXEC`, checks
+regular-file status on that same descriptor, and reads at most 8 MiB plus a
+single sentinel byte. Ancestor symlinks (including macOS `/tmp`) may resolve;
+the final source symlink is rejected. Exactly 8 MiB is accepted. Files and saves
+are preserved. These POSIX checks cover the current desktop host.
+
+Embedders can use:
+
+```cpp
+wick::Diagnostic diagnostic;
+bool ok = wick::check(environment, source, chunkName, diagnostic);
+```
+
+`environment` may be `nullptr` for builtins only. Otherwise the check VM copies
+native types, primitive defaults and numeric constants, with no callable native
+function pointers, caller program records or heap values. Program-dependent
+native types or heap defaults are rejected as host errors. Compiler temporaries
+are destroyed afterward; no caller program, globals, stack, heap or RNG are
+changed. Success clears the diagnostic. `Diagnostic::line == 0` means unavailable.
+The API checks the 8 MiB bound before constructing compiler temporaries.
+
+Both `load` and `check` now reject constant entry 65,537 before insertion while
+accepting all 65,536 u16 indices. Tests compile and load 65,536 real `abs(0)`
+statements, inspect the final encoded index 65535, and reject the next statement
+before a top-level trap can run. No controlled prefilled pool is needed.
+
+The compiler allows 256 nested recursive parser entries across statements,
+expressions, unary operators, types and `elif`. This is a parser budget, not a
+promise of 256 nested parentheses (one pair enters several parser functions).
+Flat statements do not accumulate depth. Existing limits for locals, fields,
+argument/container counts and jump offsets are not expanded by this increment.
+Compile-only validation does not establish that a program will terminate, stay
+within runtime memory, or render correctly. Instruction/call/heap budgets,
+per-VM RNG, state inspection and deterministic input/save tooling remain future
+work; no complete agent execution sandbox or native/mobile validation is claimed.

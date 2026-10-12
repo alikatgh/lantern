@@ -7,11 +7,18 @@
 #include "lantern.h"
 #include "package.hpp"
 #include "path_sandbox.hpp"
+#include "wick_host.hpp"
+#include "../wick/wick.hpp"
 extern "C" {
 #include <lua.h>
 #include <lualib.h>
 #include <lauxlib.h>
 }
+#include <algorithm>
+#include <cerrno>
+#include <cstring>
+#include <filesystem>
+#include <fcntl.h>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -412,9 +419,135 @@ static void drawErrorScreen() {
     }
 }
 
-int runWickHost(const std::string& gameDir); // wick_host.cpp
+// Check is deliberately dispatched before package extraction and platform boot.
+// It opens one source descriptor without following a final symlink and never
+// asks the game host to load, draw, save, or initialize resources.
+static std::string checkJsonString(const std::string& text) {
+    std::string out = "\"";
+    const char* hex = "0123456789abcdef";
+    for (size_t i = 0; i < text.size();) {
+        unsigned char c = (unsigned char)text[i];
+        if (c == '"' || c == '\\') {
+            out += '\\'; out += (char)c; ++i;
+        } else if (c < 0x20) {
+            out += "\\u00"; out += hex[c >> 4]; out += hex[c & 15]; ++i;
+        } else if (c < 0x80) {
+            out += (char)c; ++i;
+        } else {
+            // Keep valid UTF-8 intact, but make invalid filesystem/message
+            // bytes representable too rather than emitting malformed JSON.
+            size_t n = c >= 0xc2 && c <= 0xdf ? 2 :
+                       c >= 0xe0 && c <= 0xef ? 3 :
+                       c >= 0xf0 && c <= 0xf4 ? 4 : 0;
+            bool valid = n && i + n <= text.size();
+            for (size_t j = 1; valid && j < n; ++j) {
+                unsigned char d = (unsigned char)text[i + j];
+                valid = d >= 0x80 && d <= 0xbf;
+                if (j == 1 && ((c == 0xe0 && d < 0xa0) ||
+                    (c == 0xed && d > 0x9f) || (c == 0xf0 && d < 0x90) ||
+                    (c == 0xf4 && d > 0x8f))) valid = false;
+            }
+            if (valid) { out.append(text, i, n); i += n; }
+            else {
+                out += "\\u00"; out += hex[c >> 4]; out += hex[c & 15]; ++i;
+            }
+        }
+    }
+    out += '"';
+    return out;
+}
+
+static int checkResult(bool ok, const std::string& source,
+                       const wick::Diagnostic& diagnostic, int exitCode) {
+    auto nullable = [](const std::string& value) {
+        return value.empty() ? std::string("null") : checkJsonString(value);
+    };
+    std::string json = "{\"schema\":\"lantern.check.v1\",\"ok\":";
+    json += ok ? "true" : "false";
+    json += ",\"language\":\"wick\",\"source\":" + nullable(source);
+    json += ",\"diagnostics\":[";
+    if (!ok) {
+        json += "{\"severity\":\"error\",\"phase\":" + checkJsonString(diagnostic.phase);
+        json += ",\"code\":" + checkJsonString(diagnostic.code);
+        json += ",\"file\":" + nullable(diagnostic.file);
+        json += ",\"line\":" + (diagnostic.line > 0 ? std::to_string(diagnostic.line) : "null");
+        json += ",\"message\":" + checkJsonString(diagnostic.message) + "}";
+    }
+    json += "]}\n";
+    std::fwrite(json.data(), 1, json.size(), stdout);
+    return exitCode;
+}
+
+static int checkCLI(int argc, char** argv) {
+    std::string sourcePath;
+    auto failure = [&](const char* phase, const char* code,
+                       const std::string& message) {
+        return checkResult(false, sourcePath,
+                           {sourcePath, 0, message, phase, code}, 2);
+    };
+    if (argc != 4 || std::string(argv[1]) != "check" ||
+        std::string(argv[2]) != "--json")
+        return failure("usage", "LANTERN_CHECK_USAGE",
+                       "usage: lantern check --json <directory|source.wick>");
+    try {
+        namespace fs = std::filesystem;
+        fs::path requested(argv[3]);
+        if (requested.empty())
+            return failure("usage", "LANTERN_CHECK_USAGE", "source path is empty");
+        std::error_code ec;
+        if (fs::is_directory(requested, ec)) requested /= "main.wick";
+        if (requested.extension() != ".wick")
+            return failure("io", "LANTERN_CHECK_SOURCE", "source must be a .wick file or a directory containing main.wick");
+        // Resolve ancestors, including macOS /tmp -> /private/tmp, but leave
+        // the final component for O_NOFOLLOW on the descriptor we read.
+        fs::path parent = requested.parent_path();
+        if (parent.empty()) parent = ".";
+        parent = fs::canonical(parent, ec);
+        if (ec)
+            return failure("io", "LANTERN_CHECK_IO", "cannot resolve source directory: " + ec.message());
+        sourcePath = (parent / requested.filename()).string();
+        int fd = open(sourcePath.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+        if (fd < 0)
+            return failure("io", errno == ELOOP ? "LANTERN_CHECK_SOURCE" : "LANTERN_CHECK_IO",
+                           "cannot open source: " + std::string(std::strerror(errno)));
+        struct Descriptor {
+            int fd;
+            ~Descriptor() { close(fd); }
+        } descriptor{fd};
+        struct stat st{};
+        if (fstat(fd, &st) != 0)
+            return failure("io", "LANTERN_CHECK_IO", "cannot inspect source descriptor");
+        if (!S_ISREG(st.st_mode))
+            return failure("io", "LANTERN_CHECK_SOURCE", "source must be a regular file");
+        if (st.st_size > (off_t)wick::SOURCE_LIMIT_BYTES)
+            return failure("io", "WICK_SOURCE_LIMIT", "source exceeds 8388608 bytes");
+        std::string source;
+        char buffer[8192];
+        while (source.size() <= wick::SOURCE_LIMIT_BYTES) {
+            size_t remaining = wick::SOURCE_LIMIT_BYTES + 1 - source.size();
+            ssize_t count = read(fd, buffer, std::min(sizeof buffer, remaining));
+            if (count < 0) {
+                if (errno == EINTR) continue;
+                return failure("io", "LANTERN_CHECK_IO", "cannot read source: " + std::string(std::strerror(errno)));
+            }
+            if (!count) break;
+            source.append(buffer, (size_t)count);
+        }
+        if (source.size() > wick::SOURCE_LIMIT_BYTES)
+            return failure("io", "WICK_SOURCE_LIMIT", "source exceeds 8388608 bytes");
+        wick::Diagnostic diagnostic;
+        bool ok = checkWickSource(source, sourcePath, diagnostic);
+        int exitCode = ok ? 0 : diagnostic.phase == "compile" ? 1 : 2;
+        return checkResult(ok, sourcePath, diagnostic, exitCode);
+    } catch (const std::exception& error) {
+        return failure("host", "LANTERN_CHECK_HOST", error.what());
+    }
+}
 
 int main(int argc, char** argv) {
+    if (argc > 1 && (std::string(argv[1]) == "check" ||
+                     std::string(argv[1]) == "--check"))
+        return checkCLI(argc, argv);
     g_gameDir = argc > 1 ? argv[1] : "games/demo";
 
     // a .lant package: verify, extract to a fresh temp dir, run from there

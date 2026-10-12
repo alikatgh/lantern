@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <memory>
+#include <stdexcept>
 
 namespace wick {
 
@@ -606,6 +608,57 @@ static void installBuiltins(VM* vm) {
     addNative(vm, nullptr, "hex(num, num=1): str", nHex, e);
     addNative(vm, nullptr, "bin(num, num=1): str", nBin, e);
     addConst(vm, nullptr, "pi", 3.14159265358979323846);
+}
+
+bool check(VM* environment, const std::string& source,
+           const std::string& chunkName, Diagnostic& diagnostic) {
+    diagnostic = {};
+    if (source.size() > SOURCE_LIMIT_BYTES) {
+        diagnostic = {chunkName, 0, "source exceeds 8388608 bytes", "compile",
+                      "WICK_SOURCE_LIMIT"};
+        return false;
+    }
+    try {
+        std::unique_ptr<VM, decltype(&destroy)> temporary(create(), destroy);
+        if (environment) {
+            // Reconstruct metadata only. Never copy a caller heap pointer,
+            // program record id, or callable native into the checking VM.
+            for (const Native& native : environment->natives) {
+                Native copy;
+                copy.name = native.name;
+                copy.params = native.params;
+                copy.minArgs = native.minArgs;
+                copy.ret = native.ret;
+                auto safeType = [](const Type& t) {
+                    return t.k != Type::RECORD &&
+                        !((t.k == Type::LIST || t.k == Type::MAP) &&
+                          t.elem == Type::RECORD);
+                };
+                if (!safeType(copy.ret))
+                    throw std::runtime_error("native return type depends on program records");
+                for (const Type& type : copy.params)
+                    if (!safeType(type))
+                        throw std::runtime_error("native parameter type depends on program records");
+                for (const Value& value : native.defaults) {
+                    if (value.tag != Value::NIL && value.tag != Value::NUM &&
+                        value.tag != Value::BOOL)
+                        throw std::runtime_error("native default depends on caller heap");
+                    copy.defaults.push_back(value);
+                }
+                temporary->natByName[copy.name] = (int)temporary->natives.size();
+                temporary->natives.push_back(std::move(copy));
+            }
+            temporary->numConsts = environment->numConsts;
+        }
+        if (temporary->natByName.find("floor") == temporary->natByName.end())
+            installBuiltins(temporary.get());
+        for (Native& native : temporary->natives) native.fn = nullptr;
+        std::string err;
+        return compile(*temporary, source, chunkName, err, &diagnostic);
+    } catch (const std::exception& error) {
+        diagnostic = {chunkName, 0, error.what(), "host", "LANTERN_CHECK_HOST"};
+        return false;
+    }
 }
 
 bool load(VM* vm, const std::string& source, const std::string& chunkName,
