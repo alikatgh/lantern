@@ -60,6 +60,20 @@ int lt_boot(const char* title, int window_scale) {
     int renderScale = 1;
     const char* scaleValue = std::getenv("LANTERN_RENDER_SCALE");
     const char* nativeValue = std::getenv("LANTERN_RENDER_NATIVE");
+    const char* paintedValue = std::getenv("LANTERN_PAINTED_2D");
+    const char* workersValue = std::getenv("LANTERN_RENDER_WORKERS");
+    int renderWorkers = 0;
+    if (paintedValue && (paintedValue[0] != '1' || paintedValue[1] != '\0')) {
+        std::fprintf(stderr, "LANTERN_PAINTED_2D must be exactly 1\n");
+        return 0;
+    }
+    if (workersValue) {
+        if (!paintedValue || workersValue[0] < '1' || workersValue[0] > '8' || workersValue[1] != '\0') {
+            std::fprintf(stderr, "LANTERN_RENDER_WORKERS requires LANTERN_PAINTED_2D=1 and an integer from 1 through 8\n");
+            return 0;
+        }
+        renderWorkers = workersValue[0] - '0';
+    }
     if (nativeValue && (nativeValue[0] != '1' || nativeValue[1] != '\0' || scaleValue)) {
         std::fprintf(stderr, "LANTERN_RENDER_NATIVE must be exactly 1 and cannot accompany LANTERN_RENDER_SCALE\n");
         return 0;
@@ -81,6 +95,12 @@ int lt_boot(const char* title, int window_scale) {
     if (!(E.nativeRendering ? E.gfx.initNative(frameW, frameH) : E.gfx.init(renderScale))) {
         std::fprintf(stderr, "gfx init failed\n");
         lt::platShutdown();
+        return 0;
+    }
+    if (!E.gfx.setPainted2D(paintedValue != nullptr, renderWorkers)) {
+        std::fprintf(stderr, "painted compositor configuration failed\n");
+        lt::platShutdown();
+        E = Engine{};
         return 0;
     }
     // engine-owned frame-verification contract (any host, Lua or C):
@@ -176,6 +196,8 @@ int lt_screen_h(void) { return lt::SCREEN_H; }
 int lt_render_width(void) { return E.booted ? E.gfx.framebufferWidth() : 0; }
 int lt_render_height(void) { return E.booted ? E.gfx.framebufferHeight() : 0; }
 int lt_render_native(void) { return E.booted && E.nativeRendering ? 1 : 0; }
+int lt_render_painted(void) { return E.booted && E.gfx.painted2DEnabled() ? 1 : 0; }
+int lt_render_workers(void) { return E.booted ? E.gfx.painted2DWorkers() : 0; }
 
 void lt_clear(float r, float g, float b) { E.gfx.clear(r, g, b); }
 

@@ -70,6 +70,13 @@ with tempfile.TemporaryDirectory(prefix='wick-check-', dir=a.scratch) as tempora
     main.write_text('lt.rect(0, 0, 2, 2, 1, 0, 0)\nlt.sprite_ex(1, 0, 0)\n'
                     'let saved = lt.load_save("never-read")\n', encoding='utf-8')
     check(main)
+    main.write_text('let painted: bool = lt.render_painted()\n'
+                    'let workers: num = lt.render_workers()\n', encoding='utf-8')
+    check(main)
+    main.write_text('let painted: num = lt.render_painted()\n', encoding='utf-8')
+    check(main, 1, code='WICK_COMPILE_ERROR', line=1)
+    main.write_text('let workers = lt.render_workers(1)\n', encoding='utf-8')
+    check(main, 1, code='WICK_COMPILE_ERROR', line=1)
     main.write_text('// line one\nlt.rect("bad", 0, 2, 2, 1, 0, 0)\n', encoding='utf-8')
     check(main, 1, code='WICK_COMPILE_ERROR', line=2, phase='compile')
     main.write_text('// one\nlet x: num = true\n', encoding='utf-8')

@@ -6,6 +6,7 @@
 #pragma once
 #include "lantern_math.h"
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,10 @@ constexpr int VERT_FLOATS = 12;       // pos3 normal3 uv2 rgba4
 struct TexClamp; // texel bounds for atlas-safe sampling (gfx.cpp)
 
 struct Gfx {
+    Gfx();
+    ~Gfx();
+    Gfx(Gfx&&) noexcept;
+    Gfx& operator=(Gfx&&) noexcept;
     bool init(int renderScale = 1);    // bounded 1..10; logical space stays 400x240
     bool initNative(int width, int height);
     bool resizeNative(int width, int height); // no allocations after native init
@@ -34,6 +39,12 @@ struct Gfx {
     float renderScale() const { return renderScale_; }
     size_t frameCapacityBytes() const { return fb_.capacity() + depth_.capacity() * sizeof(float); }
     void setAxisFastPath(bool enabled) { axisFastPath_ = enabled; }
+    // Opt-in affine painted compositor. 0 chooses up to 8 hardware workers;
+    // 1 is serial. Allocation/thread failure deterministically uses serial.
+    // Calls, like all other Gfx mutations, belong to this instance's owner.
+    bool setPainted2D(bool enabled, int workers = 0);
+    bool painted2DEnabled() const { return painted2D_; }
+    int painted2DWorkers() const;
 
     // ---- state ----
     void clear(float r, float g, float b);
@@ -82,6 +93,7 @@ struct Gfx {
     struct Tex {
         int w = 0, h = 0;
         bool nearest = false;          // default is bilinear — the 3DS look
+        bool opaque = false;           // every loaded texel has alpha 255
         std::vector<uint8_t> px;       // RGBA
     };
     struct Mesh { std::vector<float> v; };  // VERT_FLOATS per vertex
@@ -110,6 +122,11 @@ struct Gfx {
     void raster2DTri(const float* v0, const float* v1, const float* v2,
                      const Tex* tex, const TexClamp& uvClamp);
     void flush2D();
+    bool isPaintedAxis(const Quad2D& quad) const;
+    void rasterPaintedQuad(const Quad2D& quad, const Tex* tex,
+                           const TexClamp& clamp, int firstRow, int lastRow);
+    void paintedRange(size_t first, size_t last);
+    struct RowWorkers;
     bool rasterAxisQuad(const Quad2D& quad, const Tex* tex, const TexClamp& uvClamp);
     void pushQuad(int tex, float x, float y, float w, float h, float u0,
                   float v0, float u1, float v1, float r, float g, float b,
@@ -125,6 +142,9 @@ struct Gfx {
     float renderScale_ = 1;
     bool nativeTarget_ = false;
     bool axisFastPath_ = true;
+    bool painted2D_ = false;
+    bool depthNeedsClear_ = false;
+    std::unique_ptr<RowWorkers> rowWorkers_;
     int frameW_ = SCREEN_W, frameH_ = SCREEN_H;
     std::vector<uint8_t> fb_;          // frameW_*frameH_*4, RGBA top-down
     std::vector<float> depth_;

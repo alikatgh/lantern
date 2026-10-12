@@ -139,13 +139,34 @@ The C getters `lt_render_width`, `lt_render_height`, `lt_render_native` and Wick
 `lt.render_width()`, `lt.render_height()`, `lt.render_native()` expose the actual
 framebuffer dimensions and mode, with zero dimensions before boot.
 
-Native mode is experimental: the measured representative CPU scene takes about
-181 ms at 3600×2160 before upload. It is not a 60 FPS or GPU rendering feature.
-The axis-aligned fast path preserves existing sampling and alpha semantics,
-while transformed draws use the reference triangle path. CPU framebuffer
-capacity is bounded to 76.8 MB and reserved once; allocation failure aborts boot.
-`lantern --build-info --json` adds `render_capabilities: ["native-render-v1"]`
-without changing its v1 schema. This reports compiled support, not platform QA.
+Native mode is experimental. The legacy representative CPU scene measured about
+181 ms at 3600×2160 before upload. The optional painted compositor samples
+axis-aligned images directly and processes ordered draws in disjoint row bands:
+
+```sh
+LANTERN_RENDER_NATIVE=1 LANTERN_PAINTED_2D=1 ./build/lantern path/to/game
+```
+
+`LANTERN_PAINTED_2D` accepts exactly `1`. `LANTERN_RENDER_WORKERS=1..8` optionally
+selects the total worker count, including the calling thread; it requires painted
+mode. Unset chooses at most eight hardware workers. Invalid settings fail before
+platform allocation, and thread/allocation failure uses the serial compositor.
+Workers persist across frames; no frame creates threads or heap tasks. Rotated
+draws synchronize with the reference triangle renderer, and 3D retains its depth
+behavior. Each Gfx instance must still be called from its owning thread.
+`lt_render_painted` / Wick `lt.render_painted()` reports the active mode, and
+`lt_render_workers` / `lt.render_workers()` reports the actual worker count,
+including serial fallback. Both report zero/false before boot.
+
+Painted mode keeps alpha-weighted filtering, atlas-cell clamping, draw order and
+logical geometry. Direct affine sampling removes legacy triangle-interpolation
+rounding, so small color-byte differences are expected; it is an opt-in mode,
+with byte-identical serial and parallel output. The legacy mode stays unchanged.
+CPU framebuffer capacity is bounded to 76.8 MB and reserved once; allocation
+failure aborts boot. `lantern --build-info --json` reports `native-render-v1` and
+`painted-2d-v1` in `render_capabilities`, without changing its v1 schema. These
+are compiled capabilities, not a 60 FPS, GPU, source-art quality or platform-QA
+claim. Native cadence still requires measurement with the actual game and upload.
 
 Game/UI coordinates and logical input remain 400×240; camera, collision logic
 and atlas UVs do not change. More density can expose detail in higher-resolution
