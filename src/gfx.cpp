@@ -1178,42 +1178,67 @@ bool Gfx::isPaintedAxis(const Quad2D& q) const {
            q.v[0][3] == q.v[1][3] && q.v[2][3] == q.v[5][3];
 }
 
-void Gfx::rasterPaintedQuad(const Quad2D& q, const Tex* tex,
-                          const TexClamp& c, int firstRow, int lastRow) {
+Gfx::PixelRect Gfx::paintedBounds(const Quad2D& q) const {
     const float left = std::min(q.v[0][0], q.v[1][0]);
     const float right = std::max(q.v[0][0], q.v[1][0]);
     const float top = std::min(q.v[0][1], q.v[2][1]);
     const float bottom = std::max(q.v[0][1], q.v[2][1]);
     const float width = q.v[1][0]-q.v[0][0], height = q.v[2][1]-q.v[0][1];
-    if (std::fabs(width*height) < 1e-6f || q.v[0][7] <= 0.004f) return;
+    if (std::fabs(width*height) < 1e-6f || q.v[0][7] <= 0.004f) return {};
     // Legacy edge ownership is (left,right] x (top,bottom] at pixel centers.
-    const int x0 = int(std::floor(std::clamp(left-0.5f, -1.0f, float(frameW_-1))))+1;
-    const int x1 = int(std::floor(std::clamp(right-0.5f, -1.0f, float(frameW_-1))));
-    const int y0 = std::max(firstRow, int(std::floor(std::clamp(top-0.5f, -1.0f, float(frameH_-1))))+1);
-    const int y1 = std::min(lastRow-1, int(std::floor(std::clamp(bottom-0.5f, -1.0f, float(frameH_-1)))));
+    return {int(std::floor(std::clamp(left-0.5f, -1.0f, float(frameW_-1))))+1,
+            int(std::floor(std::clamp(top-0.5f, -1.0f, float(frameH_-1))))+1,
+            int(std::floor(std::clamp(right-0.5f, -1.0f, float(frameW_-1)))),
+            int(std::floor(std::clamp(bottom-0.5f, -1.0f, float(frameH_-1))))};
+}
+
+void Gfx::rasterPaintedQuad(const Quad2D& q, const Tex* tex,
+                          const TexClamp& c, int firstRow, int lastRow,
+                          const PixelRect* occlusion) {
+    const auto bounds = paintedBounds(q);
+    const int x0=bounds.x0, x1=bounds.x1;
+    const int y0=std::max(firstRow,bounds.y0), y1=std::min(lastRow-1,bounds.y1);
     if (x0 > x1 || y0 > y1) return;
+    const bool hole = occlusion && occlusion->x0 <= x1 && occlusion->x1 >= x0 &&
+                                  occlusion->y0 <= y1 && occlusion->y1 >= y0;
+    const int skip0=hole?std::max(x0,occlusion->x0):0;
+    const int skip1=hole?std::min(x1,occlusion->x1):-1;
+    const bool allRows = hole && y0 >= occlusion->y0 && y1 <= occlusion->y1;
+    if (allRows && skip0 == x0 && skip1 == x1) return;
+    // Subtract exactly the later opaque rectangle. Each row has at most two
+    // disjoint visible spans; absolute sample coordinates remain unchanged.
+    const auto spans = [&](int y, auto draw) {
+        if (hole && y >= occlusion->y0 && y <= occlusion->y1) {
+            if (x0 < skip0) draw(x0,skip0-1);
+            if (skip1 < x1) draw(skip1+1,x1);
+        } else draw(x0,x1);
+    };
     const float* tint = q.v[0]+4;
     auto byte = [](float value) { return uint8_t(std::clamp(value,0.0f,255.0f)); };
     if (!tex || q.tex == whiteTex_) {
         const uint8_t rgb[3] = {to8(tint[0]),to8(tint[1]),to8(tint[2])};
         const float alpha = std::min(tint[3],1.0f), inverse = 1-alpha;
         for (int y = y0; y <= y1; ++y) {
-            uint8_t* p = &fb_[(size_t(y)*frameW_+x0)*4];
-            if (alpha == 1) {
-                // Preserve framebuffer alpha: 2D has always written RGB only.
-                for (int x = x0; x <= x1; ++x,p+=4) {
-                    p[0]=rgb[0]; p[1]=rgb[1]; p[2]=rgb[2];
-                }
-            } else for (int x = x0; x <= x1; ++x,p+=4)
-                for (int k=0;k<3;++k) p[k]=uint8_t(rgb[k]*alpha+p[k]*inverse);
+            spans(y,[&](int start,int end) {
+                uint8_t* p = &fb_[(size_t(y)*frameW_+start)*4];
+                if (alpha == 1) {
+                    // Preserve framebuffer alpha: 2D has always written RGB only.
+                    for (int x = start; x <= end; ++x,p+=4) {
+                        p[0]=rgb[0]; p[1]=rgb[1]; p[2]=rgb[2];
+                    }
+                } else for (int x = start; x <= end; ++x,p+=4)
+                    for (int k=0;k<3;++k) p[k]=uint8_t(rgb[k]*alpha+p[k]*inverse);
+            });
         }
         return;
     }
     struct Tap { int x0, x1; float fraction; };
     std::array<Tap, MAX_FRAME_W> taps;
+    const float width = q.v[1][0]-q.v[0][0], height = q.v[2][1]-q.v[0][1];
     const float du = (q.v[1][2]-q.v[0][2])/width;
     const float dv = (q.v[2][3]-q.v[0][3])/height;
     for (int x = x0; x <= x1; ++x) {
+        if (allRows && x == skip0) { x=skip1; continue; }
         const float u = q.v[0][2]+((x+0.5f)-q.v[0][0])*du;
         const float fx = std::clamp(u*tex->w-(tex->nearest?0.0f:0.5f),float(c.x0-1),float(c.x1+1));
         const int ix = tex->nearest ? int(fx) : int(std::floor(fx));
@@ -1227,8 +1252,9 @@ void Gfx::rasterPaintedQuad(const Quad2D& q, const Tex* tex,
         const float ay = fy-iy;
         const uint8_t* row0 = &tex->px[size_t(std::clamp(iy,c.y0,c.y1))*tex->w*4];
         const uint8_t* row1 = &tex->px[size_t(std::clamp(iy+1,c.y0,c.y1))*tex->w*4];
-        uint8_t* dst = &fb_[(size_t(y)*frameW_+x0)*4];
-        for (int x = x0; x <= x1; ++x,dst+=4) {
+        spans(y,[&](int start,int end) {
+        uint8_t* dst = &fb_[(size_t(y)*frameW_+start)*4];
+        for (int x = start; x <= end; ++x,dst+=4) {
             const auto tap = taps[x];
             const auto* a = row0+tap.x0; const auto* b = row0+tap.x1;
             const auto* d = row1+tap.x0; const auto* e = row1+tap.x1;
@@ -1258,18 +1284,31 @@ void Gfx::rasterPaintedQuad(const Quad2D& q, const Tex* tex,
                 dst[k]=alpha==1?value:uint8_t(value*alpha+dst[k]*(1-alpha));
             }
         }
+        });
     }
 }
 
 void Gfx::paintedRange(size_t first, size_t last) {
-    struct Job { Gfx* gfx; size_t first,last; } job{this,first,last};
+    struct Job { Gfx* gfx; size_t first,last,occluder; PixelRect bounds; } job{this,first,last,last,{}};
+    size_t largest=0;
+    // One bounded occluder per contiguous axis range. Only the immutable
+    // untextured builtin with alpha>=1 completely replaces earlier RGB;
+    // destination alpha is preserved by every 2D command.
+    for (size_t i=first+1;i<last;++i) {
+        const auto& q=quads_[i];
+        if (q.tex != whiteTex_ || whiteTex_ < 0 || q.v[0][7] < 1) continue;
+        const auto b=paintedBounds(q);
+        if (b.x0>b.x1 || b.y0>b.y1) continue;
+        const size_t area=size_t(b.x1-b.x0+1)*(b.y1-b.y0+1);
+        if (area>=largest) { largest=area; job.occluder=i; job.bounds=b; }
+    }
     const auto work = [](void* context,int y0,int y1) {
         auto& j=*static_cast<Job*>(context);
         for (size_t i=j.first;i<j.last;++i) {
             const auto& q=j.gfx->quads_[i];
             const Tex* t=j.gfx->texFor(q.tex);
             const auto clamp=t?texClampFor(t,q.v[0][2],q.v[0][3],q.v[2][2],q.v[2][3]):TexClamp{};
-            j.gfx->rasterPaintedQuad(q,t,clamp,y0,y1);
+            j.gfx->rasterPaintedQuad(q,t,clamp,y0,y1,i<j.occluder&&j.occluder<j.last?&j.bounds:nullptr);
         }
     };
     if (rowWorkers_ && frameW_*frameH_ >= 400*240)

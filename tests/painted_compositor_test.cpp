@@ -12,7 +12,7 @@ namespace {
 std::atomic<bool> countAllocations{false};
 std::atomic<size_t> allocations{0};
 std::atomic<int> failAfter{-1};
-int checks=0, frameComparisons=0, legacyMaxDelta=0, actualArt=0;
+int checks=0, frameComparisons=0, legacyMaxDelta=0, actualArt=0, occlusionComparisons=0;
 size_t oraclePixels=0;
 void require(bool ok,const char* detail) { ++checks; if (!ok) throw std::runtime_error(detail); }
 using Pixels=std::vector<uint8_t>;
@@ -173,6 +173,85 @@ void concurrentInstances(const std::filesystem::path& path) {
     for(int i=0;i<12;++i)scene(one,a,1);t.join();
     require(expectedOne==pixels(one)&&expectedTwo==pixels(two),"concurrent instances retain independent workers and targets");
 }
+void occlusionScene(lt::Gfx& g,int tex,int variant,bool unculled) {
+    g.beginFrame();
+    // Vary destination alpha independently of RGB. Neither an opaque rectangle
+    // nor skipped earlier 2D commands may overwrite this fourth channel.
+    auto* dst=const_cast<uint8_t*>(g.framebuffer());
+    for(size_t i=0;i<g.framebufferSize();++i) dst[i]=uint8_t(i*37+19);
+    const auto emit=[&](auto draw) { draw();if(unculled)g.endFrame(); };
+    emit([&]{g.spriteUV(tex,-200,0,800,240,0,0,1,1);});
+    emit([&]{g.rect(-5,-5,410,250,0.2f,0.1f,0.3f,0.25f);});
+    emit([&]{g.spriteUVTinted(tex,22,17,320,200,0.5f,1,0,0,1.1f,0.6f,0.8f);});
+    emit([&]{g.rect(13.5f,9.5f,80.25f,130.75f,1,0,0,0.7f);});
+    switch(variant) {
+    case 0: // Actual atlas-frame proportions leave the outer world border.
+        emit([&]{g.rect(6,6,388,228,0.08f,0.06f,0.04f,1);});break;
+    case 1: // A near-opaque rectangle must still blend every earlier pixel.
+        emit([&]{g.rect(6,6,388,228,0.08f,0.06f,0.04f,0.999f);});break;
+    case 2: // A later textured quad, even all-opaque art, is not an occluder.
+        emit([&]{g.spriteUV(tex,6,6,388,228,0,0,1,1);});break;
+    case 3: // Largest earlier cover must not suppress commands drawn after it.
+        emit([&]{g.rect(6,6,388,228,0.4f,0.2f,0.1f,1);});
+        emit([&]{g.spriteUV(tex,8,8,384,224,0,0,1,1);});
+        emit([&]{g.rect(30,40,50,60,0,0.4f,1,1);});break;
+    case 4: // Clipped fractional cover includes exact half-pixel edge cases.
+        emit([&]{g.rect(-20.5f,20.5f,231.25f,240.75f,0.2f,1,0.7f,1);});break;
+    case 5: // Offscreen and degenerate candidates have no physical coverage.
+        emit([&]{g.rect(401,0,300,240,1,0,0,1);});
+        emit([&]{g.rect(-400,-240,399,239,0,1,0,1);});
+        emit([&]{g.rect(0,0,0,240,0,0,1,1);});break;
+    case 6: // Negative dimensions preserve the normal physical edge rule.
+        emit([&]{g.rect(390.5f,230.5f,-375.25f,-210.75f,0.3f,0.6f,0.9f,1);});break;
+    case 7: // Alpha above1 saturates; RGB may independently clamp.
+        emit([&]{g.rect(6,6,388,228,-1,1.4f,0.4f,2);});break;
+    case 8: // Multiple overlapping/disjoint opaque covers retain draw order.
+        emit([&]{g.rect(20,20,230,180,0.8f,0.1f,0.2f,1);});
+        emit([&]{g.rect(180,5,210,230,0.1f,0.8f,0.2f,1);});
+        emit([&]{g.rect(0,100,400,80,0.1f,0.2f,0.8f,1);});break;
+    case 9: // No occlusion crosses either transformed-fallback boundary.
+        emit([&]{g.spriteEx(tex,200,120,20,-15,0.37f,0.8f,0.7f,1,0.6f);});
+        emit([&]{g.rect(6,6,388,228,0.2f,0.5f,0.8f,1);});
+        emit([&]{g.spriteEx(tex,195,115,-18,12,-0.27f,1,0.6f,0.7f,0.8f);});break;
+    case 10: // Thin coverage tests rows/spans on exact physical boundaries.
+        emit([&]{g.rect(100.5f,40.5f,1,180,1,0.6f,0.2f,1);});
+        emit([&]{g.rect(0,120.5f,400,1,0.5f,1,0.2f,1);});break;
+    case 11: // Full-screen clipping can discard every earlier RGB write.
+        emit([&]{g.rect(-10000,-10000,20000,20000,0.2f,0.4f,0.6f,1);});break;
+    case 12: // Tied covers choose one deterministically without losing borders.
+        emit([&]{g.rect(0,0,200,240,1,0.2f,0.2f,1);});
+        emit([&]{g.rect(200,0,200,240,0.2f,0.2f,1,1);});break;
+    case 13: // Full opaque candidate early in its range precedes later blending.
+        emit([&]{g.rect(0,0,400,240,0.4f,0.2f,0.7f,1);});
+        emit([&]{g.rect(6,6,388,228,0.7f,0.9f,0.3f,0.4f);});break;
+    }
+    emit([&]{g.spriteUV(tex,340,200,-80,-60,0,0,0.5f,0.5f);});
+    emit([&]{g.rect(20.5f,20.5f,50.25f,40.75f,1,1,0,0.35f);});
+    emit([&]{g.print("VISIBLE BORDER",120,12,1,0.9f,0.7f,0.8f);});
+    g.endFrame();
+}
+void occlusion(const std::filesystem::path& path) {
+    for(auto size:{std::pair<int,int>{400,240},{850,510},{1600,960},{5,3}}) {
+        lt::Gfx g;require(g.initNative(size.first,size.second),"occlusion target");
+        const int tex=g.loadTexture(path.string());require(tex>=0,"occlusion texture");
+        for(int variant=0;variant<14;++variant) {
+            g.setPainted2D(true,1);
+            // A single-command painted range has no later occluder. This is
+            // the true unculled affine compositor, without legacy tolerance.
+            occlusionScene(g,tex,variant,true);const auto reference=pixels(g);
+            for(int workers:{1,2,8}) {
+                g.setPainted2D(true,workers);occlusionScene(g,tex,variant,false);
+                require(reference==pixels(g),"occlusion equals unculled painted reference byte-for-byte");
+                bool alpha=true;
+                for(size_t i=3;i<g.framebufferSize();i+=4)alpha=alpha&&g.framebuffer()[i]==uint8_t(i*37+19);
+                require(alpha,"occlusion preserves nonuniform destination alpha");++occlusionComparisons;
+            }
+        }
+        allocations=0;countAllocations=true;
+        for(int i=0;i<28;++i)occlusionScene(g,tex,i%14,false);
+        countAllocations=false;require(allocations==0,"warmed occlusion ranges allocate nothing");
+    }
+}
 void benchmark(const std::filesystem::path& root,bool legacy) {
     lt::Gfx g;require(g.initNative(3600,2160),"benchmark init");
     const int world=g.loadTexture((root/"world-0.bmp").string());
@@ -237,6 +316,7 @@ int main(int argc,char** argv) {
         const int ta=a.loadTexture(source.string()),tb=b.loadTexture(hidden.string());scene(a,ta,0);scene(b,tb,0);
         require(pixels(a)==pixels(b),"invisible source RGB never changes output");
         lifecycle(source);transformedAnd3D(source);concurrentInstances(source);
+        occlusion(source);occlusion(dir/"painted-0.bmp");
         if(argc==3) {
             std::vector<std::filesystem::path> paths;
             for(const auto& item:std::filesystem::directory_iterator(argv[2]))
@@ -244,7 +324,7 @@ int main(int argc,char** argv) {
             std::sort(paths.begin(),paths.end());require(!paths.empty()&&paths.size()<=128,"bounded real art inventory");
             for(const auto& path:paths) {parity(path,850,510,2);++actualArt;}
         }
-        std::printf("{\"status\":\"passed\",\"assertions\":%d,\"worker_frame_comparisons\":%d,\"sampler_oracle_pixels\":%zu,\"max_legacy_fixture_channel_delta\":%d,\"actual_art_files\":%d}\n",checks,frameComparisons,oraclePixels,legacyMaxDelta,actualArt);
+        std::printf("{\"status\":\"passed\",\"assertions\":%d,\"worker_frame_comparisons\":%d,\"sampler_oracle_pixels\":%zu,\"max_legacy_fixture_channel_delta\":%d,\"actual_art_files\":%d,\"occlusion_frame_comparisons\":%d}\n",checks,frameComparisons,oraclePixels,legacyMaxDelta,actualArt,occlusionComparisons);
         return 0;
     }catch(const std::exception& e){std::fprintf(stderr,"painted compositor: %s\n",e.what());return 1;}
 }

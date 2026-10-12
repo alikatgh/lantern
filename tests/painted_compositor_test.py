@@ -18,6 +18,7 @@ try:
             raise ValueError(f'{result.returncode}: {result.stdout[-2000:]} {result.stderr[-2000:]}')
         report = json.loads(result.stdout.strip().splitlines()[-1])
         if (report.get('status') != 'passed' or report.get('worker_frame_comparisons') != 72
+                or report.get('occlusion_frame_comparisons') != 336
                 or report.get('sampler_oracle_pixels', 0) < 200000
                 or report.get('max_legacy_fixture_channel_delta', 99) > 4):
             raise ValueError('compositor acceptance fixtures were not fully exercised')

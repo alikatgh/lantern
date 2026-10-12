@@ -21,6 +21,10 @@ while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
   thread/allocation failure. Reuse workers and stack work descriptors; defer
   depth clearing until a 3D draw needs it. Transformed 2D draws synchronize with
   the reference renderer. Shutdown, resize, reset and moved instances are tested.
+- Skip earlier pixels hidden by one later opaque untextured rectangle in each
+  painted axis batch, retaining visible borders and exact RGBA. A true unculled
+  painted reference checks 336 frame comparisons across workers 1/2/8, including fractional
+  clipping, transparency, textured covers and transformed boundaries.
 - Measure 120 warmed CPU frames per benchmark scene. Native presentation and
   sustained 60 FPS remain separate, unverified acceptance criteria.
 

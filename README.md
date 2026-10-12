@@ -13,7 +13,7 @@ the real CPU framebuffer is what the engine screenshot-tests in CI.
 
 - **2D and 3D in the same frame**: depth-tested gouraud-lit meshes, then
   batched sprites/text composited on top. The default framebuffer is 400×240;
-  opt-in density renders up to 1600×960 while game coordinates stay fixed.
+  experimental opt-in density renders up to 4000×2400 while game coordinates stay fixed.
 - **Small, learnable API** (~40 calls) in two flavors: **Lua** (no compiler
   needed — a game is a folder with `main.lua`) and a **C ABI**
   ([include/lantern.h](include/lantern.h)) for C/C++ games.
@@ -162,6 +162,10 @@ Painted mode keeps alpha-weighted filtering, atlas-cell clamping, draw order and
 logical geometry. Direct affine sampling removes legacy triangle-interpolation
 rounding, so small color-byte differences are expected; it is an opt-in mode,
 with byte-identical serial and parallel output. The legacy mode stays unchanged.
+Within an axis-aligned batch, one later opaque untextured rectangle can skip
+covered earlier pixels. The visible border, draw order and framebuffer alpha
+stay exact; translucent/textured draws and transformed-batch boundaries are
+excluded. Tests compare byte-for-byte with unculled painted rendering.
 CPU framebuffer capacity is bounded to 76.8 MB and reserved once; allocation
 failure aborts boot. `lantern --build-info --json` reports `native-render-v1` and
 `painted-2d-v1` in `render_capabilities`, without changing its v1 schema. These

@@ -123,8 +123,11 @@ struct Gfx {
                      const Tex* tex, const TexClamp& uvClamp);
     void flush2D();
     bool isPaintedAxis(const Quad2D& quad) const;
+    struct PixelRect { int x0 = 0, y0 = 0, x1 = -1, y1 = -1; };
+    PixelRect paintedBounds(const Quad2D& quad) const;
     void rasterPaintedQuad(const Quad2D& quad, const Tex* tex,
-                           const TexClamp& clamp, int firstRow, int lastRow);
+                           const TexClamp& clamp, int firstRow, int lastRow,
+                           const PixelRect* occlusion = nullptr);
     void paintedRange(size_t first, size_t last);
     struct RowWorkers;
     bool rasterAxisQuad(const Quad2D& quad, const Tex* tex, const TexClamp& uvClamp);
