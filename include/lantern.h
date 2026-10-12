@@ -146,6 +146,24 @@ void   lt_sound_stop(int channel);
 /* Live per-channel volume (0..1) — music crossfades between looping beds. */
 void   lt_channel_volume(int channel, float volume);
 void   lt_master_volume(float volume);
+/* Optional loading uses the same lt_sound_load result; Wick also offers
+ * try_load_sound without turning missing/invalid optional media into an error.
+ * Unload refuses any active/paused user; all decoded assets are bounded. */
+int    lt_sound_unload(int sound);
+enum { LT_BUS_SFX = 0, LT_BUS_MUSIC = 1, LT_BUS_SPEECH = 2 };
+/* Stable positive voice handles, never reused across reload/shutdown; -1
+ * on invalid input, device failure, exhaustion or a full shared 16-slot pool.
+ * New gains are 0..1; ramp/fade times are 0..60 seconds. Loop/paused: 0 or 1.
+ * Invalid controls return 0 without changing state. Paused voices stay active. */
+int    lt_voice_play(int sound, int bus, float volume, int loop, float fade_seconds);
+int    lt_voice_stop(int voice, float fade_seconds);
+int    lt_voice_pause(int voice, int paused);
+int    lt_voice_active(int voice);
+/* Atomic sample-clock equal-power replacement of new music-bus voices.
+ * Failure leaves old music intact. Paused outgoing music retires immediately. */
+int    lt_music(int sound, float volume, int loop, float crossfade_seconds);
+int    lt_bus_volume(int bus, float volume, float ramp_seconds);
+int    lt_ducking(float music_level, float attack_seconds, float release_seconds);
 
 /* ---- input ------------------------------------------------------------ */
 /* Merged keyboard + first gamepad. Names: left right up down z x c space

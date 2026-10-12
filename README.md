@@ -46,6 +46,13 @@ the real CPU framebuffer is what the engine screenshot-tests in CI.
   60 frames (override with `LANTERN_SHOT_FRAME=N`), saves the physical
   framebuffer as BMP, exits — screenshot your game in CI.
 
+Native audio offers separate SFX/music/speech buses, stable voice handles,
+sample-clock fades, equal-power music crossfades and speech-triggered ducking.
+Use optional loading and unload completed dialogue lines to keep decoded memory
+bounded. Legacy channel playback remains available. The runtime plays reviewed
+local WAV files; neural generation and network requests stay outside the engine.
+See [the Wick audio API and limits](docs/WICK.md#native-audio-buses-and-stable-voices).
+
 ## Compile-only Wick checks
 
 ```sh

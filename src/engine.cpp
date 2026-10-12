@@ -281,6 +281,27 @@ void lt_channel_volume(int channel, float volume) {
 }
 
 void lt_master_volume(float volume) { lt::audioMaster(volume); }
+int lt_sound_unload(int sound) { return lt::audioUnload(sound); }
+int lt_voice_play(int sound, int bus, float volume, int loop, float fade) {
+    if (loop != 0 && loop != 1) return -1;
+    return lt::audioVoicePlay(sound, bus, volume, loop != 0, fade);
+}
+int lt_voice_stop(int voice, float fade) { return lt::audioVoiceStop(voice, fade); }
+int lt_voice_pause(int voice, int paused) {
+    if (paused != 0 && paused != 1) return 0;
+    return lt::audioVoicePause(voice, paused != 0);
+}
+int lt_voice_active(int voice) { return lt::audioVoiceActive(voice); }
+int lt_music(int sound, float volume, int loop, float fade) {
+    if (loop != 0 && loop != 1) return -1;
+    return lt::audioMusic(sound, volume, loop != 0, fade);
+}
+int lt_bus_volume(int bus, float volume, float ramp) {
+    return lt::audioBusVolume(bus, volume, ramp);
+}
+int lt_ducking(float level, float attack, float release) {
+    return lt::audioDucking(level, attack, release);
+}
 
 static bool saveNameOk(const char* n) {
     if (!n || !*n) return false;
