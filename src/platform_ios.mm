@@ -6,6 +6,7 @@
 // our software rasterizer; Metal is presentation plumbing, exactly the
 // role SDL_Renderer plays on desktop.
 #include "platform.hpp"
+#include "render_target.hpp"
 #include "platform_ios.h"
 #include "audio.hpp"
 #include "gfx.hpp" // SCREEN_W/H
@@ -31,6 +32,8 @@ AVAudioEngine* g_audio = nil;
 AVAudioSourceNode* g_srcNode = nil;
 
 bool g_touchDown = false;
+bool g_nativeRendering = false;
+bool g_renderFailed = false;
 uint32_t g_touchSeq = 0; // bumped per press — sub-frame taps stay visible
 float g_touchPxX = 0, g_touchPxY = 0; // drawable pixels
 std::chrono::steady_clock::time_point g_t0;
@@ -56,9 +59,8 @@ fragment float4 fmain(VOut in [[stage_in]],
 
 struct DstRect { int x, y, w, h; };
 DstRect dstRect(int dw, int dh) {
-    int s = std::max(1, std::min(dw / SCREEN_W, dh / SCREEN_H));
-    return {(dw - SCREEN_W * s) / 2, (dh - SCREEN_H * s) / 2, SCREEN_W * s,
-            SCREEN_H * s};
+    const auto r = presentationRect(dw, dh, g_nativeRendering);
+    return {r.x, r.y, r.w, r.h};
 }
 
 } // namespace
@@ -126,17 +128,27 @@ void platShutdown() {
     g_dev = nil;
     g_layer = nil;
     g_touchDown = false;
+    g_nativeRendering = false;
+    g_renderFailed = false;
 }
 
-// UIKit pumps its own events; quit is not a thing an iOS game initiates.
-bool platPoll() { return true; }
+// UIKit pumps its own events; a terminal presentation failure stops rendering
+// rather than retrying a failed texture allocation every frame.
+bool platPoll() { return !g_renderFailed; }
+
+void platSetNativeRendering(bool enabled) { g_nativeRendering = enabled; }
+bool platOutputSize(int& width, int& height) {
+    if (!g_layer) return false;
+    width = int(g_layer.drawableSize.width);
+    height = int(g_layer.drawableSize.height);
+    return width > 0 && height > 0;
+}
 
 void platPresent(const uint8_t* fb, int width, int height, int pitch) {
     if (!g_queue || !g_layer) return;
-    if (!fb || width < SCREEN_W || width > SCREEN_W * 4 ||
-        width % SCREEN_W || height != SCREEN_H * (width / SCREEN_W) ||
-        pitch != width * 4) {
+    if (!fb || !validFrameLayout(width, height, pitch)) {
         std::fprintf(stderr, "platPresent: invalid bounded framebuffer layout\n");
+        g_renderFailed = true;
         return;
     }
     @autoreleasepool {
@@ -147,6 +159,7 @@ void platPresent(const uint8_t* fb, int width, int height, int pitch) {
             id<MTLTexture> next = [g_dev newTextureWithDescriptor:td];
             if (!next) {
                 std::fprintf(stderr, "Metal HD texture allocation failed\n");
+                g_renderFailed = true;
                 return;
             }
             g_frameTex = next;
@@ -160,6 +173,7 @@ void platPresent(const uint8_t* fb, int width, int height, int pitch) {
         int dw = (int)g_layer.drawableSize.width;
         int dh = (int)g_layer.drawableSize.height;
         DstRect d = dstRect(dw, dh);
+        if (d.w <= 0 || d.h <= 0) return;
         float rect[4] = {
             2.0f * d.x / dw - 1.0f,             // x0 (left, NDC)
             1.0f - 2.0f * (float)(d.y + d.h) / dh, // y0 (bottom, NDC)
@@ -231,6 +245,7 @@ PlatformTouch platTouch() {
     int dh = (int)g_layer.drawableSize.height;
     if (dw <= 0 || dh <= 0) return t;
     DstRect d = dstRect(dw, dh);
+    if (d.w <= 0 || d.h <= 0) return t;
     float s = (float)d.w / (float)SCREEN_W;
     t.x = std::clamp((g_touchPxX - (float)d.x) / s, 0.0f,
                      (float)SCREEN_W - 1);

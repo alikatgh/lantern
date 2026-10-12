@@ -7,6 +7,7 @@
 #include "gfx.hpp"
 #include "obj.hpp"
 #include "platform.hpp"
+#include "render_target.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -24,6 +25,7 @@ const char* const kInputNames[] = {"left",  "right",  "up",     "down", "z",
 
 struct Engine {
     bool booted = false;
+    bool nativeRendering = false;
     lt::Gfx gfx;
     double prevTime = 0;
     double dt = 1.0 / 60.0;
@@ -53,18 +55,30 @@ lt::Mat4 trs(float x, float y, float z, float rx, float ry, float rz,
 extern "C" {
 
 int lt_boot(const char* title, int window_scale) {
-    // Parse before any platform/frame allocation. Only a single ASCII 1..4
-    // is accepted: empty, whitespace, signs, decimals and suffixes fail closed.
+    // Validate before any platform/frame allocation. The two modes are mutually
+    // exclusive; no signs, padding, leading zeros or numeric prefixes accepted.
     int renderScale = 1;
-    if (const char* value = std::getenv("LANTERN_RENDER_SCALE")) {
-        if (value[0] < '1' || value[0] > '4' || value[1] != '\0') {
-            std::fprintf(stderr, "LANTERN_RENDER_SCALE must be exactly 1, 2, 3 or 4\n");
+    const char* scaleValue = std::getenv("LANTERN_RENDER_SCALE");
+    const char* nativeValue = std::getenv("LANTERN_RENDER_NATIVE");
+    if (nativeValue && (nativeValue[0] != '1' || nativeValue[1] != '\0' || scaleValue)) {
+        std::fprintf(stderr, "LANTERN_RENDER_NATIVE must be exactly 1 and cannot accompany LANTERN_RENDER_SCALE\n");
+        return 0;
+    }
+    if (scaleValue) {
+        if (scaleValue[0] == '1' && scaleValue[1] == '0' && scaleValue[2] == '\0') renderScale = 10;
+        else if (scaleValue[0] >= '1' && scaleValue[0] <= '9' && scaleValue[1] == '\0') renderScale = scaleValue[0] - '0';
+        else {
+            std::fprintf(stderr, "LANTERN_RENDER_SCALE must be an unpadded decimal integer from 1 through 10\n");
             return 0;
         }
-        renderScale = value[0] - '0';
     }
     if (!lt::platInit(title, window_scale)) return 0;
-    if (!E.gfx.init(renderScale)) {
+    E.nativeRendering = nativeValue != nullptr;
+    lt::platSetNativeRendering(E.nativeRendering);
+    int width = 0, height = 0, frameW = 400, frameH = 240;
+    if (E.nativeRendering && lt::platOutputSize(width, height))
+        lt::nativeFrameSize(width, height, frameW, frameH);
+    if (!(E.nativeRendering ? E.gfx.initNative(frameW, frameH) : E.gfx.init(renderScale))) {
         std::fprintf(stderr, "gfx init failed\n");
         lt::platShutdown();
         return 0;
@@ -113,7 +127,19 @@ int lt_frame_poll(void) {
 
 double lt_frame_dt(void) { return E.dt; }
 
-void lt_frame_begin(void) { E.gfx.beginFrame(); }
+void lt_frame_begin(void) {
+    if (!E.booted) return;
+    if (E.nativeRendering) {
+        int width = 0, height = 0, frameW = 0, frameH = 0;
+        if (lt::platOutputSize(width, height) && lt::nativeFrameSize(width, height, frameW, frameH) &&
+            !E.gfx.resizeNative(frameW, frameH)) {
+            std::fprintf(stderr, "native framebuffer resize failed\n");
+            E.quit = true;
+            return;
+        }
+    }
+    E.gfx.beginFrame();
+}
 
 void lt_frame_end(void) {
     if (!E.booted) return;
@@ -147,6 +173,9 @@ void lt_resources_reset(void) {
 
 int lt_screen_w(void) { return lt::SCREEN_W; }
 int lt_screen_h(void) { return lt::SCREEN_H; }
+int lt_render_width(void) { return E.booted ? E.gfx.framebufferWidth() : 0; }
+int lt_render_height(void) { return E.booted ? E.gfx.framebufferHeight() : 0; }
+int lt_render_native(void) { return E.booted && E.nativeRendering ? 1 : 0; }
 
 void lt_clear(float r, float g, float b) { E.gfx.clear(r, g, b); }
 

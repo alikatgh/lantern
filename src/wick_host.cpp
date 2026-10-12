@@ -39,6 +39,9 @@ static bool resolvePath(VM& vm, const std::string& rel, std::string& out) {
     static Value name(VM&, const Value*, int) { call; return Value::nil(); }
 #define NARG(i) (float)a[i].d
 
+static Value wFramebufferW(VM&, const Value*, int) { return Value::num(lt_render_width()); }
+static Value wFramebufferH(VM&, const Value*, int) { return Value::num(lt_render_height()); }
+static Value wRenderNative(VM&, const Value*, int) { return Value::boolean(lt_render_native() != 0); }
 static Value wClear(VM&, const Value* a, int) { lt_clear(NARG(0), NARG(1), NARG(2)); return Value::nil(); }
 static Value wCamera(VM&, const Value* a, int) { lt_camera(NARG(0), NARG(1), NARG(2), NARG(3), NARG(4), NARG(5), NARG(6)); return Value::nil(); }
 static Value wLight(VM&, const Value* a, int) { lt_light(NARG(0), NARG(1), NARG(2), NARG(3)); return Value::nil(); }
@@ -222,6 +225,9 @@ static Value wScreenshot(VM& vm, const Value* a, int) {
 static bool registerLT(VM* vm, std::string& err) {
     struct Reg { const char* sig; wick::NativeFn fn; };
     static const Reg regs[] = {
+        {"render_width(): num", wFramebufferW},
+        {"render_height(): num", wFramebufferH},
+        {"render_native(): bool", wRenderNative},
         {"clear(num, num, num)", wClear},
         {"camera(num, num, num, num, num, num, num=55)", wCamera},
         {"light(num, num, num, num=0.35)", wLight},

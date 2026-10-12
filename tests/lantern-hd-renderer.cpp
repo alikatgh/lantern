@@ -3,6 +3,7 @@
 #include "lantern.h"
 #include "gfx.hpp"
 #include "platform.hpp"
+#include "render_target.hpp"
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -187,9 +188,9 @@ void depth2() {
 }
 void boundedInitialization(const std::filesystem::path& dir) {
     lt::Gfx invalid;
-    expect(!invalid.init(0) && !invalid.init(5) && invalid.framebufferSize() == 0,
+    expect(!invalid.init(0) && !invalid.init(11) && invalid.framebufferSize() == 0,
            "direct invalid densities allocate no frame");
-    for (const char* bad : {"", "0", "5", "-1", "+2", " 2", "2 ", "2x", "2.0", "02", "22", "99999999999999999999"}) {
+    for (const char* bad : {"", "0", "11", "-1", "+2", " 2", "2 ", "2x", "2.0", "02", "22", "99999999999999999999"}) {
         setenv("LANTERN_RENDER_SCALE", bad, 1);
         const int before = initCalls;
         expect(!lt_boot("invalid", 3), "malformed density rejects boot");
@@ -202,10 +203,10 @@ void boundedInitialization(const std::filesystem::path& dir) {
     expect(presentedW == 400 && presentedH == 240 && presentedPitch == 1600,
            "unset setting retains legacy physical target");
     lt_shutdown();
-    for (int s = 1; s <= 4; ++s) {
+    for (int s = 1; s <= 10; ++s) {
         const std::string value = std::to_string(s);
         setenv("LANTERN_RENDER_SCALE", value.c_str(), 1);
-        expect(lt_boot("valid", 3), "each density1..4 initializes");
+        expect(lt_boot("valid", 3), "each density1..10 initializes");
         expect(lt_screen_w() == 400 && lt_screen_h() == 240, "public dimensions remain logical");
         expect(lt_touch_x() == 200 && lt_touch_y() == 120, "input coordinates remain logical");
         lt_frame_begin(); lt_clear(0, 0, 0);
@@ -214,7 +215,7 @@ void boundedInitialization(const std::filesystem::path& dir) {
                presentedPitch == 1600 * s, "engine passes physical presentation metadata");
         expect(presentedLast == std::array<uint8_t, 4>{255, 0, 0, 255},
                "presentation metadata indexes the actual last pixel");
-        if (s > 2) lt_screenshot((dir / ("scale" + value + ".bmp")).c_str());
+        if (s > 2 && s <= 4) lt_screenshot((dir / ("scale" + value + ".bmp")).c_str());
         setenv("LANTERN_RENDER_SCALE", s == 1 ? "4" : "1", 1);
         lt_frame_begin(); lt_clear(0, 0, 0); lt_frame_end();
         expect(presentedW == 400 * s, "density is initialization-only, not mutable per frame");
@@ -231,13 +232,14 @@ namespace lt {
 bool platInit(const char*, int) { ++initCalls; return true; }
 void platShutdown() {}
 bool platPoll() { return true; }
+void platSetNativeRendering(bool) {}
+bool platOutputSize(int& w, int& h) { w = 1200; h = 720; return true; }
 #ifdef NYURGUN_HD_BASELINE
 void platPresent(const uint8_t*) { ++presents; }
 #else
 void platPresent(const uint8_t* p, int width, int height, int pitch) {
     ++presents; presentedW = width; presentedH = height; presentedPitch = pitch;
-    expect(p && width >= 400 && width <= 1600 && width % 400 == 0 &&
-           height == 240 * (width / 400) && pitch == width * 4,
+    expect(p && validFrameLayout(width, height, pitch),
            "presentation contract is valid and bounded");
     const uint8_t* last = p + (height - 1) * pitch + (width - 1) * 4;
     for (int i = 0; i < 4; ++i) presentedLast[i] = last[i];
@@ -261,6 +263,7 @@ int main(int argc, char** argv) {
             throw std::runtime_error("output directory must already exist in owned scratch");
         makeInputs(dir);
         unsetenv("LANTERN_RENDER_SCALE");
+        unsetenv("LANTERN_RENDER_NATIVE");
         unsetenv("LANTERN_SHOT"); unsetenv("LANTERN_SHOT_FRAME");
         setenv("LANTERN_FIXED_DT", "1", 1);
         expect(lt_boot("fixture", 3), "fixture boot");

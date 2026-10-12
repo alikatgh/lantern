@@ -50,9 +50,12 @@ void   lt_frame_end(void);        /* flush 2D, integer-blit, swap          */
 double lt_frame_dt(void);         /* seconds since previous poll (<=0.1)   */
 
 /* Environment contract (read at lt_boot, honored for EVERY host):
- *   LANTERN_RENDER_SCALE=1..4 physical raster density; default 1. Only a
- *                             single ASCII digit is accepted; invalid
+ *   LANTERN_RENDER_SCALE=1..10 physical raster density; default 1. Only an
+ *                             unpadded decimal integer is accepted; invalid
  *                             values make boot fail before allocation.
+ *   LANTERN_RENDER_NATIVE=1   actual backing-pixel target, bounded 4000x2400,
+ *                             exact 5:3 aspect; follows resizes. Mutually
+ *                             exclusive with LANTERN_RENDER_SCALE.
  *   LANTERN_SHOT=<prefix>     save <prefix>.bmp of the physical frame at
  *                             frame N, then request quit (CI screenshots)
  *   LANTERN_SHOT_FRAME=N      which frame to capture (default 60)
@@ -64,6 +67,9 @@ double lt_frame_dt(void);         /* seconds since previous poll (<=0.1)   */
 /* ---- screen ----------------------------------------------------------- */
 int    lt_screen_w(void);         /* 400 */
 int    lt_screen_h(void);         /* 240 */
+int    lt_render_width(void);    /* current physical target;0 before boot */
+int    lt_render_height(void);
+int    lt_render_native(void);    /* 1 native-output mode;0 explicit/default */
 void   lt_clear(float r, float g, float b);
 /* Save the physical frame: 400*s by 240*s (call after lt_frame_end). */
 void   lt_screenshot(const char* bmp_path);
