@@ -6,6 +6,22 @@ while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
 
 ## [Unreleased]
 
+### Native host width
+
+- Default Lantern/Wick to a 64-bit native pointer ABI. `WICK_HOST_BITS=32`
+  explicitly permits a matching 32-bit toolchain; CMake rejects invalid values
+  and compiler-width mismatches before dependency discovery. The public Wick
+  header applies the same default and compile-time checks to standalone embeds,
+  and the CMake target propagates the choice to consumers.
+- Add `wick::HOST_BITS` and non-executing `lantern --build-info --json` output
+  (`lantern.build-info.v1`) for actual pointer width, selected target width,
+  compiler architecture and `num` storage/mantissa bits and radix. Invalid
+  build-info arguments produce a structured usage error and exit 2.
+- Preserve `num` as `double`, existing unsigned 32-bit helpers, bytecode, API
+  signatures and renderer/game behavior. Tests distinguish real native compiler
+  and API/build-info checks from synthetic 32/64-bit policy branches; these do
+  not claim native 32-bit or Windows/Linux release verification.
+
 ### Native audio
 
 - Add three independent SFX/music/speech buses, sample-clock gain ramps, stable

@@ -106,6 +106,36 @@ are parsed once, checked at compile time, dispatched by id at run time.
 prefers it over `main.lua` when both exist. Hot-reload and the error screen
 work exactly as with Lua — compile errors show file:line on screen.
 
+### Native host width
+
+Wick defaults to a 64-bit native pointer ABI. The public `wick/wick.hpp` defaults
+`WICK_HOST_BITS` to `64`, accepts `64` or `32`, and statically rejects a value
+that differs from `sizeof(void*) * CHAR_BIT`. `wick::HOST_BITS` exposes the
+validated choice as a compile-time constant. Pointer width comes from the
+compiler target, independently of the machine running the build.
+
+With CMake, configure `-DWICK_HOST_BITS=32` only with a real 32-bit toolchain;
+Lantern additionally needs matching SDL/Lua libraries and platform support.
+The CMake `wick` target publishes the selected definition to its consumers.
+Standalone embedders must supply `-DWICK_HOST_BITS=32` consistently to the
+compiler/VM sources and every consuming translation unit for a 32-bit build.
+Omitting it retains the 64-bit default, which intentionally fails on a 32-bit
+compiler. This option never supplies architecture compiler flags or dependencies.
+
+`lantern --build-info --json` reports the compiled pointer and target widths,
+compiler architecture and `num` representation without loading/executing a game,
+extracting a package or initializing SDL/audio. It emits one
+`lantern.build-info.v1` JSON object: success has `ok: true`, `host_bits`,
+`target_bits`, `architecture`, `num` (`storage_bits`, `mantissa_bits`, `radix`)
+and an empty `diagnostics` array. Invalid arguments have `ok: false`, a
+`LANTERN_BUILD_INFO_USAGE` diagnostic and exit 2. Success exits 0.
+
+Host width does not introduce an integer type: `num` is still `double`, with
+its existing precision and arithmetic. The unsigned 32-bit bit helpers, API
+signatures, bytecode and gameplay behavior stay unchanged. Policy fixtures for
+32-bit targets are synthetic unless run with an actual 32-bit compiler/runtime;
+they do not establish a native 32-bit or Windows/Linux release.
+
 ## Files
 
 - `wick/wick.hpp` — the embed API (Value, VM, natives, ~no dependencies)

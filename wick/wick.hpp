@@ -3,12 +3,26 @@
 // and run on a stack VM. No dependencies beyond the C++ standard library.
 // See docs/WICK.md for the language itself.
 #pragma once
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
 
+// Standalone embedders use the same native ABI policy as the CMake wick target.
+// Set WICK_HOST_BITS=32 for every translation unit only with a 32-bit toolchain.
+#ifndef WICK_HOST_BITS
+#define WICK_HOST_BITS 64
+#endif
+#if WICK_HOST_BITS != 64 && WICK_HOST_BITS != 32
+#error "WICK_HOST_BITS must be 64 or 32"
+#endif
+static_assert(sizeof(void*) * CHAR_BIT == WICK_HOST_BITS,
+              "WICK_HOST_BITS must match the compiler's native pointer width");
+
 namespace wick {
+
+inline constexpr unsigned HOST_BITS = WICK_HOST_BITS;
 
 struct Obj; // Str / List / Map (GC-managed, defined internally)
 

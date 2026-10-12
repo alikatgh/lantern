@@ -93,6 +93,33 @@ cmake -B build && cmake --build build -j8
 ./build/lantern_hello_c                  # the same engine from pure C
 ```
 
+Native builds default to a **64-bit host ABI**. `WICK_HOST_BITS` accepts exactly
+`64` or `32` and must match the selected compiler's pointer width; CMake rejects
+a mismatch before discovering SDL/Lua. The setting selects an ABI requirement,
+so it does not turn a 64-bit compiler into a 32-bit compiler.
+
+Developers can explicitly select 32 bits with a matching toolchain, matching
+SDL/Lua dependencies and an operating system that permits 32-bit applications:
+
+```sh
+cmake -S . -B build32 -DCMAKE_TOOLCHAIN_FILE=/path/to/32-bit-toolchain.cmake -DWICK_HOST_BITS=32
+cmake --build build32
+```
+
+Inspect the compiled artifact without starting a game or SDL/audio:
+
+```sh
+./build/lantern --build-info --json
+```
+
+The `lantern.build-info.v1` JSON reports actual pointer `host_bits`, configured
+`target_bits`, compiler architecture and `num` storage/mantissa bits and radix.
+Only the exact invocation above is accepted; misuse returns a structured usage
+diagnostic and exit 2. `num` remains C++ `double`, checked bit helpers remain
+unsigned 32-bit operations, and the bytecode, game API and painted 2D/3D renderer
+are unchanged. Native 32-bit execution and Windows/Linux release validation are
+separate checks; synthetic width-policy tests do not establish those results.
+
 ## Render density and painted transparency
 
 `LANTERN_RENDER_SCALE` is read once at engine startup. Omit it for the existing

@@ -19,6 +19,7 @@ extern "C" {
 #include <cstring>
 #include <filesystem>
 #include <fcntl.h>
+#include <limits>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -544,7 +545,39 @@ static int checkCLI(int argc, char** argv) {
     }
 }
 
+static int buildInfoCLI(int argc, char** argv) {
+    // This path does not inspect games, extract packages or initialize SDL/Lua.
+    if (argc != 3 || std::string(argv[2]) != "--json") {
+        std::fputs("{\"schema\":\"lantern.build-info.v1\",\"ok\":false,"
+                   "\"diagnostics\":[{\"severity\":\"error\",\"phase\":\"usage\","
+                   "\"code\":\"LANTERN_BUILD_INFO_USAGE\","
+                   "\"message\":\"usage: lantern --build-info --json\"}]}\n", stdout);
+        return 2;
+    }
+#if defined(__aarch64__) || defined(_M_ARM64)
+    constexpr const char* architecture = "aarch64";
+#elif defined(__x86_64__) || defined(_M_X64)
+    constexpr const char* architecture = "x86_64";
+#elif defined(__i386__) || defined(_M_IX86)
+    constexpr const char* architecture = "x86";
+#elif defined(__arm__) || defined(_M_ARM)
+    constexpr const char* architecture = "arm";
+#else
+    constexpr const char* architecture = "unknown";
+#endif
+    std::printf("{\"schema\":\"lantern.build-info.v1\",\"ok\":true,"
+                "\"host_bits\":%zu,\"target_bits\":%u,\"architecture\":\"%s\","
+                "\"num\":{\"storage_bits\":%zu,\"mantissa_bits\":%d,\"radix\":%d},"
+                "\"diagnostics\":[]}\n",
+                sizeof(void*) * CHAR_BIT, wick::HOST_BITS, architecture,
+                sizeof(double) * CHAR_BIT, std::numeric_limits<double>::digits,
+                std::numeric_limits<double>::radix);
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc > 1 && std::string(argv[1]) == "--build-info")
+        return buildInfoCLI(argc, argv);
     if (argc > 1 && (std::string(argv[1]) == "check" ||
                      std::string(argv[1]) == "--check"))
         return checkCLI(argc, argv);
