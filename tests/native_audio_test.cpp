@@ -446,6 +446,8 @@ int platInputDown(const char*) { return 0; }
 int platGamepadConnected() { return 0; }
 void platRumble(float, float, int) {}
 PlatformTouch platTouch() { return {}; }
+PlatformPointer platPointer() { return {}; }
+void platCursorVisible(bool) {}
 std::string platSavePath(const char*) { return {}; }
 bool platAudioStart() { ++starts; return deviceAvailable; }
 void platAudioStop() { ++stops; }

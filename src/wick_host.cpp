@@ -211,6 +211,10 @@ static Value wTouchDown(VM&, const Value*, int) { return Value::boolean(lt_touch
 static Value wTouchPressed(VM&, const Value*, int) { return Value::boolean(lt_touch_pressed() != 0); }
 static Value wTouchX(VM&, const Value*, int) { return Value::num(lt_touch_x()); }
 static Value wTouchY(VM&, const Value*, int) { return Value::num(lt_touch_y()); }
+static Value wPointerX(VM&, const Value*, int) { return Value::num(lt_pointer_x()); }
+static Value wPointerY(VM&, const Value*, int) { return Value::num(lt_pointer_y()); }
+static Value wPointerInside(VM&, const Value*, int) { return Value::boolean(lt_pointer_inside() != 0); }
+static Value wCursorVisible(VM&, const Value* a, int) { lt_cursor_visible(a[0].b ? 1 : 0); return Value::nil(); }
 static Value wQuit(VM&, const Value*, int) { lt_quit(); return Value::nil(); }
 static Value wEscQuits(VM&, const Value* a, int) { lt_escape_quits(a[0].b ? 1 : 0); return Value::nil(); }
 static Value wTime(VM&, const Value*, int) { return Value::num(lt_time()); }
@@ -262,6 +266,10 @@ static bool registerLT(VM* vm, std::string& err) {
         {"touch_pressed(): bool", wTouchPressed},
         {"touch_x(): num", wTouchX},
         {"touch_y(): num", wTouchY},
+        {"pointer_x(): num", wPointerX},
+        {"pointer_y(): num", wPointerY},
+        {"pointer_inside(): bool", wPointerInside},
+        {"cursor_visible(bool)", wCursorVisible},
         {"rumble(num, num, num)", wRumble},
         {"load_sound(str): num", wLoadSound},
         {"try_load_sound(str): num", wTryLoadSound},

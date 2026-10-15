@@ -248,6 +248,8 @@ int platInputDown(const char*) { return 0; }
 int platGamepadConnected() { return 0; }
 void platRumble(float,float,int) {}
 PlatformTouch platTouch() { PlatformTouch t; t.x = 200; t.y = 120; return t; }
+PlatformPointer platPointer() { return {}; }
+void platCursorVisible(bool) {}
 std::string platSavePath(const char*) { return {}; }
 bool platAudioStart() { return false; }
 void platAudioStop() {}

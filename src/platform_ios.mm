@@ -254,6 +254,10 @@ PlatformTouch platTouch() {
     return t;
 }
 
+// This API describes the desktop mouse, not phone touch or iPad hover.
+PlatformPointer platPointer() { return {}; }
+void platCursorVisible(bool) {}
+
 std::string platSavePath(const char* name) {
     NSString* dir = [NSSearchPathForDirectoriesInDomains(
                          NSApplicationSupportDirectory, NSUserDomainMask, YES)

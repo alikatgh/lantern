@@ -197,6 +197,19 @@ int    lt_touch_pressed(void);    /* went down this frame */
 float  lt_touch_x(void);
 float  lt_touch_y(void);
 
+/* ---- desktop pointer ------------------------------------------------- */
+/* Hover position, independent of the last touched position. Coordinates
+ * use the same clamped 400x240 logical space at every render density.
+ * _inside is true only over the presented game content, not the letterbox
+ * or outside the window. Use touch_pressed/x/y for left-click edges and
+ * their press location. No desktop pointer on iOS: _inside is always 0.
+ * The native desktop cursor is visible by default; visibility has no effect
+ * on hover/click tracking and is a no-op on iOS.                           */
+float  lt_pointer_x(void);
+float  lt_pointer_y(void);
+int    lt_pointer_inside(void);
+void   lt_cursor_visible(int visible);
+
 /* ---- save data --------------------------------------------------------- */
 /* Persistent per-game storage (binary-safe). Files live under the user's
  * application-support dir: <support>/lantern/saves/<name>. Names:
