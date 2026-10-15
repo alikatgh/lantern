@@ -8,6 +8,8 @@
 #include "pointer_mapping.hpp"
 #include "audio.hpp"
 #include "gfx.hpp" // SCREEN_W/H
+#include "save_storage.hpp"
+#include "native_frame_stats.hpp"
 #include <SDL.h>
 #include <algorithm>
 #include <cstdio>
@@ -95,6 +97,8 @@ bool initFail(const char* what) {
     if (P.ren) SDL_DestroyRenderer(P.ren);
     if (P.win) SDL_DestroyWindow(P.win);
     SDL_Quit();
+    desktopSaveRoot().close();
+    nativeFrameStats().configure(nullptr);
     P = Plat{};
     return false;
 }
@@ -106,9 +110,21 @@ void SDLCALL audioCallback(void*, Uint8* stream, int len) {
 } // namespace
 
 bool platInit(const char* title, int windowScale) {
+    if (!desktopSaveRoot().configure(std::getenv("LANTERN_SAVE_ROOT"))) {
+        std::fprintf(stderr, "LANTERN_SAVE_ROOT must select an absolute existing directory, not a final symlink\n");
+        nativeFrameStats().configure(nullptr);
+        return false;
+    }
+    if (!nativeFrameStats().configure(std::getenv("LANTERN_FRAME_STATS"))) {
+        std::fprintf(stderr, "LANTERN_FRAME_STATS must be an unpadded decimal integer from 1 through 3600\n");
+        desktopSaveRoot().close();
+        return false;
+    }
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) !=
         0) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
+        desktopSaveRoot().close();
+        nativeFrameStats().configure(nullptr);
         return false;
     }
     if (windowScale < 1) windowScale = 3;
@@ -141,6 +157,10 @@ bool platInit(const char* title, int windowScale) {
 }
 
 void platShutdown() {
+    SDL_RendererInfo info{};
+    const char* renderer = P.ren && SDL_GetRendererInfo(P.ren, &info) == 0 ? info.name : nullptr;
+    nativeFrameStats().report(stderr, SDL_GetCurrentVideoDriver(), renderer);
+    desktopSaveRoot().close();
     if (P.pad) SDL_GameControllerClose(P.pad);
     if (P.frameTex) SDL_DestroyTexture(P.frameTex);
     if (P.ren) SDL_DestroyRenderer(P.ren);
@@ -254,6 +274,14 @@ void platPresent(const uint8_t* fb, int width, int height, int pitch) {
     SDL_RenderClear(P.ren);
     SDL_RenderCopy(P.ren, P.frameTex, nullptr, &dst);
     SDL_RenderPresent(P.ren);
+    if (nativeFrameStats().collecting()) {
+        nativeFrameStats().presented(NativeFrameStats::now());
+        if (nativeFrameStats().complete()) {
+            SDL_RendererInfo info{};
+            nativeFrameStats().report(stderr, SDL_GetCurrentVideoDriver(),
+                SDL_GetRendererInfo(P.ren, &info) == 0 ? info.name : nullptr);
+        }
+    }
 }
 
 double platTime() { return SDL_GetTicks64() / 1000.0; }
@@ -321,6 +349,10 @@ void platCursorVisible(bool visible) {
 }
 
 std::string platSavePath(const char* name) {
+    // Save calls can precede boot, or follow a boot rejected before platInit
+    // (for example an invalid renderer setting). An explicit selection must
+    // never reach SDL_GetPrefPath, even before its directory was configured.
+    if (std::getenv("LANTERN_SAVE_ROOT")) return {};
     char* pref = SDL_GetPrefPath("lantern", "saves");
     if (!pref) return {};
     std::string p = std::string(pref) + name;

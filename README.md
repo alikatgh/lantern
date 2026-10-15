@@ -55,6 +55,35 @@ bounded. Legacy channel playback remains available. The runtime plays reviewed
 local WAV files; neural generation and network requests stay outside the engine.
 See [the Wick audio API and limits](docs/WICK.md#native-audio-buses-and-stable-voices).
 
+## Isolated desktop validation
+
+For a private playthrough, create an empty directory and set
+`LANTERN_SAVE_ROOT=/absolute/existing/directory`. The SDL desktop backend pins
+that directory for all saves; an empty, relative, missing, non-directory or final
+symlink selection refuses boot and cannot fall back to ordinary user storage.
+The directory is not created automatically. With the setting omitted, the
+existing platform save destination is retained. Save names cannot traverse
+directories, symlinks/nonregular files are refused, and selected-root hard links
+are refused. Missing saves still return `nil` to Wick; an existing zero-byte
+save returns an empty string.
+
+Set `LANTERN_FRAME_STATS=120` to collect 120 samples after 30 completed warmup
+frames. Only unpadded integers from 1 through 3600 are accepted. Collection uses
+fixed memory and stops at the target while the game continues; one
+`lantern.native-frame-stats.v1` JSON line goes to stderr at the target, or a
+partial report on normal shutdown. Unset means no timing/reporting. Each metric
+contains min, median, nearest-rank P95/P99, max, mean (milliseconds) and the count
+over the 60 Hz budget; no post-warmup samples produces `null` metrics.
+
+`poll_to_present_ms` spans `lt_frame_poll` entry through the return of
+`SDL_RenderPresent`, including update/draw, CPU rasterization, texture upload and
+the framework's presentation/vsync wait. `cadence_ms` measures consecutive
+presentation returns and includes work between frames. Both use the monotonic
+clock directly, independently of clamped/fixed game delta time. The report names
+the actual video driver and renderer: dummy-driver tests establish the contract,
+not native display cadence. SDL return timing does not prove physical scanout or
+GPU completion. No network, file output or background work is added.
+
 ## Compile-only Wick checks
 
 ```sh

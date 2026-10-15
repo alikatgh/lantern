@@ -8,6 +8,8 @@
 #include "obj.hpp"
 #include "platform.hpp"
 #include "render_target.hpp"
+#include "save_storage.hpp"
+#include "native_frame_stats.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -129,6 +131,8 @@ void lt_shutdown(void) {
 
 int lt_frame_poll(void) {
     if (!E.booted) return 0; // not booted (or boot failed): never loop
+    if (lt::nativeFrameStats().collecting())
+        lt::nativeFrameStats().poll(lt::NativeFrameStats::now());
     // snapshot last frame's state for _pressed edge detection
     for (const char* name : kInputNames)
         E.prevDown[name] = lt_input_down(name) != 0;
@@ -359,37 +363,29 @@ int lt_ducking(float level, float attack, float release) {
     return lt::audioDucking(level, attack, release);
 }
 
-static bool saveNameOk(const char* n) {
-    if (!n || !*n) return false;
-    for (const char* p = n; *p; p++) {
-        char c = *p;
-        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-              (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-'))
-            return false;
-    }
-    return true;
-}
-
 int lt_save_write(const char* name, const void* data, int len) {
-    if (!saveNameOk(name) || len < 0) return 0;
-    std::string p = lt::platSavePath(name);
-    if (p.empty()) return 0;
-    FILE* f = std::fopen(p.c_str(), "wb");
+    if (!lt::saveNameOk(name) || len < 0 || (len && !data)) return 0;
+    const auto& root = lt::desktopSaveRoot();
+    std::string p = root.selected() ? std::string{} : lt::platSavePath(name);
+    if (!root.selected() && p.empty()) return 0;
+    FILE* f = root.openFile(name, p, true);
     if (!f) return 0;
     size_t wrote = len ? std::fwrite(data, 1, (size_t)len, f) : 0;
-    std::fclose(f);
-    return wrote == (size_t)len ? 1 : 0;
+    const int closed = std::fclose(f);
+    return wrote == (size_t)len && closed == 0 ? 1 : 0;
 }
 
 int lt_save_read(const char* name, void* buf, int buf_len) {
-    if (!saveNameOk(name) || buf_len < 0) return -1;
-    std::string p = lt::platSavePath(name);
-    if (p.empty()) return -1;
-    FILE* f = std::fopen(p.c_str(), "rb");
+    if (!lt::saveNameOk(name) || buf_len < 0 || (buf_len && !buf)) return -1;
+    const auto& root = lt::desktopSaveRoot();
+    std::string p = root.selected() ? std::string{} : lt::platSavePath(name);
+    if (!root.selected() && p.empty()) return -1;
+    FILE* f = root.openFile(name, p, false);
     if (!f) return -1;
     int got = (int)std::fread(buf, 1, (size_t)buf_len, f);
-    std::fclose(f);
-    return got;
+    const bool failed = std::ferror(f) != 0;
+    const int closed = std::fclose(f);
+    return failed || closed != 0 ? -1 : got;
 }
 
 double lt_time(void) {
