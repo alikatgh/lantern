@@ -132,13 +132,17 @@ lt.cursor_visible(true)
     // SDL3's software renderer (used through sdl2-compat on CI) refreshes its
     // cached window surface when a real render command queue is activated.
     // Pumping input alone need not change the reported backing output yet.
+    int beforeW=0,beforeH=0;
+    expect(SDL_GetRendererOutputSize(SDL_GetRenderer(win),&beforeW,&beforeH) == 0,
+           "measure output before resized surface activation");
     lt_frame_begin(); lt_frame_end(); poll();
     SDL_GetWindowSize(win,&ww,&wh);
     int dw=0,dh=0;
     expect(SDL_GetRendererOutputSize(SDL_GetRenderer(win),&dw,&dh) == 0,
            "measure resized renderer output");
     std::cerr << "pointer resize: window " << ww << 'x' << wh
-              << " output " << dw << 'x' << dh << " native=" << native << '\n';
+              << " output before " << beforeW << 'x' << beforeH
+              << " after " << dw << 'x' << dh << " native=" << native << '\n';
     expect(dw > 0 && dh > 0 && dw*3 != dh*5,
            "resized drawable really has non-5:3 aspect");
     const auto content=lt::presentationRect(dw,dh,native);
