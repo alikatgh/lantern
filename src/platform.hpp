@@ -20,6 +20,11 @@ struct PlatformTouch {
     uint32_t seq = 0;
 };
 
+struct PlatformPointer {
+    bool inside = false;
+    float x = 0, y = 0;
+};
+
 bool platInit(const char* title, int windowScale);
 void platShutdown();
 bool platPoll();                       // pump events; false = quit requested
@@ -33,6 +38,8 @@ int platInputDown(const char* name);   // named buttons (see lantern.h)
 int platGamepadConnected();
 void platRumble(float low, float high, int durationMs);
 PlatformTouch platTouch();
+PlatformPointer platPointer();
+void platCursorVisible(bool visible);
 std::string platSavePath(const char* name); // "" = storage unavailable
 // Audio device: the backend opens a 48 kHz stereo float stream whose
 // callback pulls lt::mixerRender (audio.hpp). Failure = silent engine.

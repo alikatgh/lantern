@@ -319,6 +319,11 @@ int lt_touch_pressed(void) {
 float lt_touch_x(void) { return lt::platTouch().x; }
 float lt_touch_y(void) { return lt::platTouch().y; }
 
+float lt_pointer_x(void) { return lt::platPointer().x; }
+float lt_pointer_y(void) { return lt::platPointer().y; }
+int lt_pointer_inside(void) { return lt::platPointer().inside ? 1 : 0; }
+void lt_cursor_visible(int visible) { lt::platCursorVisible(visible != 0); }
+
 int lt_sound_load(const char* wav_path) { return lt::audioLoad(wav_path); }
 
 int lt_sound_play(int sound, float volume, int loop) {

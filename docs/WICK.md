@@ -86,6 +86,47 @@ fn draw() {
   `list<Pt>`. Field types are num/bool/str only. No classes, no closures,
   no metatables — a game script language, ruthlessly small.
 
+## Desktop pointer and left clicks
+
+```wick
+lt.cursor_visible(true) // native desktop arrow; also visible by default
+if lt.pointer_inside() {
+  let hoverX = lt.pointer_x()
+  let hoverY = lt.pointer_y()
+  // Test hover against your UI's logical bounds.
+}
+if lt.touch_pressed() {
+  let clickX = lt.touch_x()
+  let clickY = lt.touch_y()
+  // Activate once using the click location, even after subsequent hover.
+}
+```
+
+`pointer_x(): num`, `pointer_y(): num` and `pointer_inside(): bool` describe
+desktop hover independently of touch. Coordinates stay clamped to the logical
+400×240 screen at every framebuffer density and in native mode. `pointer_inside`
+is false in letterbox margins, outside the window, before boot and after
+shutdown. Window points are mapped through the current HiDPI backing size and
+presentation rectangle, including after resize. Test `pointer_inside` before
+hover hit testing; clamped coordinates alone cannot identify the letterbox.
+
+The existing touch API keeps its behavior: desktop left presses/held drags update
+`touch_x/y`, released hover leaves that position unchanged, `touch_down` is held
+state, and sequence-based `touch_pressed` lasts one frame even for a fast
+press/release. Use touch coordinates for the activation location rather than
+hover coordinates, which may already have moved later in the same event batch.
+`cursor_visible(bool)` changes only native cursor visibility; input still tracks
+while hidden. An iOS host has no desktop pointer (`pointer_inside` is always
+false; coordinates are zero) and cursor visibility is a no-op. This API does not
+implement iPad hover. The desktop build advertises `desktop-pointer-v1` in the
+additive `input_capabilities` field of `lantern --build-info --json`.
+
+The `pointer` CTest uses the real SDL event/backend, C ABI and Wick bindings with
+dummy video/audio drivers. It checks hover without a press, letterbox/HiDPI/native
+mapping, densities 1/2/4, resize, leave/reentry, click edges, old touch behavior and
+cursor state. These checks do not establish the cursor's appearance on a native
+desktop or a game's modal interactions.
+
 ## Optionals — the headline feature
 
 ```wick

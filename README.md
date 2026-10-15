@@ -30,7 +30,9 @@ the real CPU framebuffer is what the engine screenshot-tests in CI.
 - **Audio**: 48 kHz 16-channel WAV mixer with looping.
 - **Input**: keyboard + game controller merged into one namespace, held and
   edge-triggered, plus rumble; **single-point touch, 3DS-style** (mouse on
-  desktop, real touch on iOS). **Save data**: binary-safe per-name storage.
+  desktop, real touch on iOS). Desktop hover has independent logical pointer
+  coordinates, content bounds and explicit native cursor visibility.
+  **Save data**: binary-safe per-name storage.
 - **Runs on iPhone/iPad**: the platform layer has a native iOS backend —
   Metal-presented (the rasterizer stays ours), UITouch, AVAudio, and
   GCController gamepads. `tools/build_ios_sim.sh [game_dir]` builds a
@@ -114,6 +116,9 @@ Inspect the compiled artifact without starting a game or SDL/audio:
 
 The `lantern.build-info.v1` JSON reports actual pointer `host_bits`, configured
 `target_bits`, compiler architecture and `num` storage/mantissa bits and radix.
+Its additive `input_capabilities` contains `desktop-pointer-v1` when the
+desktop hover/cursor API is compiled in. This is an API capability, not native
+cursor or game UI validation. See [pointer input](docs/WICK.md#desktop-pointer-and-left-clicks).
 Only the exact invocation above is accepted; misuse returns a structured usage
 diagnostic and exit 2. `num` remains C++ `double`, checked bit helpers remain
 unsigned 32-bit operations, and the bytecode, game API and painted 2D/3D renderer

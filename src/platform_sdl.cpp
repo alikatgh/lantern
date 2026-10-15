@@ -5,6 +5,7 @@
 // NO rendering happens here — the frame arrives fully rasterized.
 #include "platform.hpp"
 #include "render_target.hpp"
+#include "pointer_mapping.hpp"
 #include "audio.hpp"
 #include "gfx.hpp" // SCREEN_W/H
 #include <SDL.h>
@@ -32,6 +33,8 @@ struct Plat {
     bool touchDown = false;
     uint32_t touchSeq = 0; // bumped per press — sub-frame taps stay visible
     float touchWinX = 0, touchWinY = 0;
+    bool pointerInWindow = false;
+    float pointerWinX = 0, pointerWinY = 0;
 };
 Plat P;
 
@@ -127,6 +130,12 @@ bool platInit(const char* title, int windowScale) {
                                    SCREEN_H);
     if (!P.frameTex) return initFail("SDL_CreateTexture");
     P.keys = SDL_GetKeyboardState(nullptr);
+    int mouseX = 0, mouseY = 0;
+    SDL_GetMouseState(&mouseX, &mouseY);
+    P.pointerWinX = float(mouseX);
+    P.pointerWinY = float(mouseY);
+    P.pointerInWindow = SDL_GetMouseFocus() == P.win;
+    SDL_ShowCursor(SDL_ENABLE);
     openFirstPad();
     return true;
 }
@@ -149,6 +158,34 @@ bool platPoll() {
             SDL_GameControllerClose(P.pad);
             P.pad = nullptr;
             openFirstPad();
+        }
+        // Hover is independent of mouse-as-touch. A released pointer keeps
+        // moving while touch coordinates retain their historical semantics.
+        if (e.type == SDL_MOUSEMOTION &&
+            (e.motion.windowID == 0 || e.motion.windowID == SDL_GetWindowID(P.win))) {
+            P.pointerWinX = float(e.motion.x);
+            P.pointerWinY = float(e.motion.y);
+            P.pointerInWindow = true;
+        }
+        if ((e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) &&
+            (e.button.windowID == 0 || e.button.windowID == SDL_GetWindowID(P.win))) {
+            P.pointerWinX = float(e.button.x);
+            P.pointerWinY = float(e.button.y);
+            P.pointerInWindow = true;
+        }
+        if (e.type == SDL_WINDOWEVENT &&
+            e.window.windowID == SDL_GetWindowID(P.win)) {
+            if (e.window.event == SDL_WINDOWEVENT_ENTER) {
+                int mouseX = 0, mouseY = 0;
+                SDL_GetMouseState(&mouseX, &mouseY);
+                P.pointerWinX = float(mouseX);
+                P.pointerWinY = float(mouseY);
+                P.pointerInWindow = true;
+            }
+            if (e.window.event == SDL_WINDOWEVENT_LEAVE ||
+                e.window.event == SDL_WINDOWEVENT_HIDDEN ||
+                e.window.event == SDL_WINDOWEVENT_MINIMIZED)
+                P.pointerInWindow = false;
         }
         // mouse-as-touch: left button is the finger
         if (e.type == SDL_MOUSEBUTTONDOWN &&
@@ -268,6 +305,19 @@ PlatformTouch platTouch() {
     t.x = std::clamp((px - (float)d.x) / s, 0.0f, (float)SCREEN_W - 1);
     t.y = std::clamp((py - (float)d.y) / s, 0.0f, (float)SCREEN_H - 1);
     return t;
+}
+
+PlatformPointer platPointer() {
+    if (!P.win || !P.ren) return {};
+    int ww = 0, wh = 0, dw = 0, dh = 0;
+    SDL_GetWindowSize(P.win, &ww, &wh);
+    if (SDL_GetRendererOutputSize(P.ren, &dw, &dh) != 0) return {};
+    return mapPointer(P.pointerWinX, P.pointerWinY, P.pointerInWindow,
+                      ww, wh, dw, dh, P.nativeRendering);
+}
+
+void platCursorVisible(bool visible) {
+    if (P.win) SDL_ShowCursor(visible ? SDL_ENABLE : SDL_DISABLE);
 }
 
 std::string platSavePath(const char* name) {

@@ -6,6 +6,20 @@ while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
 
 ## [Unreleased]
 
+### Desktop pointer input
+
+- Add independent hover coordinates and content membership in the C/Wick API,
+  mapped from SDL window points through the current HiDPI presentation rectangle.
+  Logical coordinates remain 400×240 at every density and in native mode;
+  letterbox margins and window leave reject hover.
+- Show the native desktop cursor explicitly at boot and expose cursor visibility
+  without changing input tracking. iOS returns no desktop pointer and treats
+  visibility as a no-op. Existing touch coordinates and click edges are unchanged.
+- Advertise additive `input_capabilities: ["desktop-pointer-v1"]` in build-info.
+  Bounded dummy-driver SDL/C/Wick tests cover hover, mapping, resize, cursor state,
+  fast clicks and held-click edges. Native cursor appearance remains a separate
+  platform check.
+
 ### Optional painted 2D compositor
 
 - Add strict `LANTERN_PAINTED_2D=1` and optional `LANTERN_RENDER_WORKERS=1..8`,
