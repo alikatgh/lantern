@@ -205,6 +205,9 @@ float  lt_touch_y(void);
  * their press location. No desktop pointer on iOS: _inside is always 0.
  * The native desktop cursor is visible by default; visibility has no effect
  * on hover/click tracking and is a no-op on iOS.                           */
+// Compile-time feature guard for external platform backends supporting both
+// older Lantern headers and the additive desktop pointer interface.
+#define LT_DESKTOP_POINTER_V1 1
 float  lt_pointer_x(void);
 float  lt_pointer_y(void);
 int    lt_pointer_inside(void);
