@@ -115,6 +115,21 @@ add_test(NAME wick_bitlab COMMAND ${CMAKE_COMMAND} -E env
 # CPU renderer checks replace OS presentation/input with deterministic stubs.
 # The fixtures are generated in bounded temporary directories under the build.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_executable(lantern_native_frame_stats_test tests/native_frame_stats_test.cpp)
+target_include_directories(lantern_native_frame_stats_test PRIVATE src)
+target_compile_options(lantern_native_frame_stats_test PRIVATE -Wall -Wextra)
+add_test(NAME native_frame_stats COMMAND lantern_native_frame_stats_test)
+add_executable(lantern_native_validation_test tests/native_validation_test.cpp)
+target_include_directories(lantern_native_validation_test PRIVATE src)
+target_link_libraries(lantern_native_validation_test lantern_core)
+target_compile_options(lantern_native_validation_test PRIVATE -Wall -Wextra)
+add_test(NAME native_validation_sdl
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/native_validation_test.py
+        --binary $<TARGET_FILE:lantern_native_validation_test>
+        --host $<TARGET_FILE:lantern>
+        --stats-probe $<TARGET_FILE:lantern_native_frame_stats_test>
+        --scratch ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(native_frame_stats native_validation_sdl PROPERTIES TIMEOUT 60 LABELS validation)
 find_package(Threads REQUIRED)
 target_link_libraries(lantern_core PUBLIC Threads::Threads)
 add_executable(lantern_hd_renderer_test tests/lantern-hd-renderer.cpp)

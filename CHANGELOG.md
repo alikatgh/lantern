@@ -6,6 +6,23 @@ while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
 
 ## [Unreleased]
 
+### Isolated desktop validation
+
+- Add optional `LANTERN_SAVE_ROOT` selecting an absolute existing directory.
+  Pin the directory descriptor, reject invalid selections without fallback, and
+  retain the ordinary platform save destination when unset. Save names reject
+  traversal; file opens refuse symlinks/nonregular objects before truncation,
+  and isolated roots also refuse multiply linked files.
+- Add optional `LANTERN_FRAME_STATS=1..3600`: after 30 completed warmup frames,
+  collect bounded monotonic poll-to-SDL-present-return timings and separate
+  presentation-return cadence. Emit one stderr JSON report at the target or
+  partial shutdown; the game continues after collection stops. No game delta
+  time clamp, file output, upload or new Wick ABI is involved.
+- Unit/fake-clock and dummy-driver SDL integration checks establish isolation,
+  failure behavior, bounded collection and JSON reporting. Actual desktop
+  presentation measurements and gameplay validation remain separate checks;
+  SDL return timing does not measure physical display scanout.
+
 ### Desktop pointer input
 
 - Add independent hover coordinates and content membership in the C/Wick API,
