@@ -36,6 +36,9 @@ void mappingChecks() {
     // Native fit has a different rectangle: [0,33,1000,600].
     point(lt::mapPointer(250,166.5f,true,500,333,1000,666,true),200,120,true);
     point(lt::mapPointer(250,15,true,500,333,1000,666,true),200,0,false);
+    // An unchanged 5:3 backing surface has no letterbox even after the window
+    // point dimensions change. Input must follow the actual presented output.
+    point(lt::mapPointer(500,0,true,1000,666,1200,720,false),200,0,true);
     // A small legacy window crops the minimum 400x240 presentation.
     point(lt::mapPointer(150,90,true,300,180,300,180,false),200,120,true);
     point(lt::mapPointer(-1,90,true,300,180,300,180,false),49,120,false);
@@ -126,7 +129,20 @@ lt.cursor_visible(true)
     expect(SDL_ShowCursor(SDL_QUERY) == SDL_ENABLE,"repeated modal visibility is idempotent");
     // Native resize remaps the unchanged window-point position lazily.
     SDL_SetWindowSize(win,1000,666); poll();
+    // SDL3's software renderer (used through sdl2-compat on CI) refreshes its
+    // cached window surface when a real render command queue is activated.
+    // Pumping input alone need not change the reported backing output yet.
+    lt_frame_begin(); lt_frame_end(); poll();
     SDL_GetWindowSize(win,&ww,&wh);
+    int dw=0,dh=0;
+    expect(SDL_GetRendererOutputSize(SDL_GetRenderer(win),&dw,&dh) == 0,
+           "measure resized renderer output");
+    std::cerr << "pointer resize: window " << ww << 'x' << wh
+              << " output " << dw << 'x' << dh << " native=" << native << '\n';
+    expect(dw > 0 && dh > 0 && dw*3 != dh*5,
+           "resized drawable really has non-5:3 aspect");
+    const auto content=lt::presentationRect(dw,dh,native);
+    expect(content.y > 0,"measured presentation really has a top letterbox");
     mouse(SDL_MOUSEMOTION,id,ww/2,wh/2); poll();
     near(lt_pointer_x(),200,"resize maps content center x");
     near(lt_pointer_y(),120,"resize maps content center y");
