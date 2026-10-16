@@ -95,9 +95,9 @@ if lt.pointer_inside() {
   let hoverY = lt.pointer_y()
   // Test hover against your UI's logical bounds.
 }
-if lt.touch_pressed() {
-  let clickX = lt.touch_x()
-  let clickY = lt.touch_y()
+if lt.touch_pressed() and lt.touch_press_inside() {
+  let clickX = lt.touch_press_x()
+  let clickY = lt.touch_press_y()
   // Activate once using the click location, even after subsequent hover.
 }
 ```
@@ -113,8 +113,19 @@ hover hit testing; clamped coordinates alone cannot identify the letterbox.
 The existing touch API keeps its behavior: desktop left presses/held drags update
 `touch_x/y`, released hover leaves that position unchanged, `touch_down` is held
 state, and sequence-based `touch_pressed` lasts one frame even for a fast
-press/release. Use touch coordinates for the activation location rather than
-hover coordinates, which may already have moved later in the same event batch.
+press/release. The additive `touch_press_x/y(): num` and
+`touch_press_inside(): bool` instead snapshot the latest accepted begin, projected
+through the presentation rectangle when the event is processed. Drag, release,
+hover, leave and later resize do not change that snapshot. Read it together with
+`touch_pressed` for activation; use the old `touch_x/y` for dragging. Several
+begins in one poll choose the last begin and advance the same existing sequence.
+Letterbox/outside begins retain `inside=false` even if the pointer later enters;
+an inside begin remains valid after leaving. Foreign-window/unscoped desktop
+events and unavailable renderer geometry cannot generate press edges. Before boot
+and after shutdown the new getters return zero/false. iOS applies the same begin
+snapshot to drawable-pixel UITouch coordinates; this is separate from desktop
+hover. `touch-press-v1` in build-info and `LT_TOUCH_PRESS_V1` in the C header identify
+the additive interface.
 `cursor_visible(bool)` changes only native cursor visibility; input still tracks
 while hidden. An iOS host has no desktop pointer (`pointer_inside` is always
 false; coordinates are zero) and cursor visibility is a no-op. This API does not

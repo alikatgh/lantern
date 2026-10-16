@@ -86,6 +86,9 @@ void eventChecks(const char* density, bool native) {
     SDL_GetWindowSize(win,&ww,&wh);
     const int cx=ww/2, cy=wh/2;
     poll();
+    expect(!lt_touch_press_inside(), "new boot has no stale press membership");
+    near(lt_touch_press_x(),0,"new boot press x is reset");
+    near(lt_touch_press_y(),0,"new boot press y is reset");
     const float initialTouchX=lt_touch_x(), initialTouchY=lt_touch_y();
     mouse(SDL_MOUSEMOTION,id,cx,cy); poll();
     expect(lt_pointer_inside(), "hover enters content without pressing");
@@ -110,7 +113,47 @@ void eventChecks(const char* density, bool native) {
     near(lt_touch_y(),120,"fast click keeps press y after subsequent hover");
     near(lt_pointer_x(),0,"pointer follows subsequent hover x");
     near(lt_pointer_y(),0,"pointer follows subsequent hover y");
+    near(lt_touch_press_x(),200,"fast click snapshot x survives subsequent hover");
+    near(lt_touch_press_y(),120,"fast click snapshot y survives subsequent hover");
+    expect(lt_touch_press_inside(),"fast click snapshot retains content membership");
     poll(); expect(!lt_touch_pressed(), "fast click edge lasts one frame");
+    const auto beforeForeign = lt::platTouch().seq;
+    for (Uint32 foreign : {Uint32(0), id + 1000}) {
+        mouse(SDL_MOUSEBUTTONDOWN,foreign,0,0);
+        mouse(SDL_MOUSEMOTION,foreign,0,0);
+        mouse(SDL_MOUSEBUTTONUP,foreign,0,0); poll();
+        expect(!lt_touch_pressed() && !lt_touch_down(),"foreign/unscoped window cannot generate a press");
+        expect(lt::platTouch().seq == beforeForeign,"foreign window cannot mutate press sequence");
+        near(lt_touch_press_x(),200,"foreign window cannot mutate snapshot x");
+    }
+    // Down and held drag in the SAME queue drain: old touch tracks the drag;
+    // the additive activation snapshot stays at the down location.
+    mouse(SDL_MOUSEBUTTONDOWN,id,cx,cy);
+    mouse(SDL_MOUSEMOTION,id,0,0); poll();
+    expect(lt_touch_pressed() && lt_touch_down(),"same-poll press plus drag retains edge");
+    near(lt_touch_x(),0,"old touch x retains drag semantics");
+    near(lt_touch_y(),0,"old touch y retains drag semantics");
+    near(lt_touch_press_x(),200,"same-poll drag cannot move press x");
+    near(lt_touch_press_y(),120,"same-poll drag cannot move press y");
+    expect(lt_touch_press_inside(),"same-poll drag cannot change press membership");
+    mouse(SDL_MOUSEBUTTONUP,id,0,0); poll();
+    mouse(SDL_MOUSEBUTTONDOWN,id,cx,cy);
+    mouse(SDL_MOUSEBUTTONUP,id,cx,cy);
+    windowEvent(id,SDL_WINDOWEVENT_LEAVE); poll();
+    expect(lt_touch_pressed() && !lt_touch_down() && !lt_pointer_inside(),"released inside tap can leave before poll");
+    expect(lt_touch_press_inside(),"window leave cannot invalidate an accepted inside press");
+    near(lt_touch_press_x(),200,"leave keeps press x");
+    near(lt_touch_press_y(),120,"leave keeps press y");
+    const auto beforeMultiple = lt::platTouch().seq;
+    mouse(SDL_MOUSEBUTTONDOWN,id,0,0);
+    mouse(SDL_MOUSEBUTTONUP,id,0,0);
+    mouse(SDL_MOUSEBUTTONDOWN,id,cx,cy);
+    mouse(SDL_MOUSEMOTION,id,0,0); poll();
+    expect(lt::platTouch().seq == beforeMultiple + 2,"multiple begins advance the existing sequence per press");
+    near(lt_touch_press_x(),200,"multiple begins select last press x");
+    near(lt_touch_press_y(),120,"multiple begins select last press y");
+    expect(lt_touch_press_inside(),"multiple begins select last press membership");
+    mouse(SDL_MOUSEBUTTONUP,id,0,0); poll();
     mouse(SDL_MOUSEBUTTONDOWN,id,cx,cy); poll();
     expect(lt_touch_down() && lt_touch_pressed(), "held click begins once");
     poll(); expect(lt_touch_down() && !lt_touch_pressed(), "held click does not repeat");
@@ -122,11 +165,18 @@ void eventChecks(const char* density, bool native) {
     runWick(R"(
 check(lt.pointer_inside(), "Wick receives inside")
 check(lt.pointer_x() == 200 and lt.pointer_y() == 120, "Wick receives logical hover")
+check(lt.touch_press_inside(), "Wick receives press content membership")
+check(lt.touch_press_x() == 200 and lt.touch_press_y() == 120, "Wick receives the accepted press snapshot")
 lt.cursor_visible(true)
 )");
     expect(SDL_ShowCursor(SDL_QUERY) == SDL_ENABLE,"Wick restores visible cursor");
     for (int i=0; i<3; ++i) lt_cursor_visible(1);
     expect(SDL_ShowCursor(SDL_QUERY) == SDL_ENABLE,"repeated modal visibility is idempotent");
+    mouse(SDL_MOUSEBUTTONDOWN,id,ww/4,wh/4);
+    mouse(SDL_MOUSEBUTTONUP,id,ww/4,wh/4); poll();
+    const float beforeResizePressX = lt_touch_press_x(), beforeResizePressY = lt_touch_press_y();
+    near(beforeResizePressX,100,"off-center press x before resize");
+    near(beforeResizePressY,60,"off-center press y before resize");
     // Native resize remaps the unchanged window-point position lazily.
     SDL_SetWindowSize(win,1000,666); poll();
     // SDL3's software renderer (used through sdl2-compat on CI) refreshes its
@@ -150,21 +200,55 @@ lt.cursor_visible(true)
     mouse(SDL_MOUSEMOTION,id,ww/2,wh/2); poll();
     near(lt_pointer_x(),200,"resize maps content center x");
     near(lt_pointer_y(),120,"resize maps content center y");
+    // Resizing changes current touch/hover mapping, never the old projection
+    // bound to the most recent press edge.
+    near(lt_touch_press_x(),beforeResizePressX,"resize cannot reproject press x");
+    near(lt_touch_press_y(),beforeResizePressY,"resize cannot reproject press y");
+    expect(lt_touch_press_inside(),"resize cannot reproject press membership");
+    mouse(SDL_MOUSEBUTTONDOWN,id,ww/2,0);
+    mouse(SDL_MOUSEMOTION,id,ww/2,wh/2);
+    mouse(SDL_MOUSEBUTTONUP,id,ww/2,wh/2); poll();
+    expect(lt_touch_pressed() && lt_pointer_inside(),"letterbox begin can drag to content before poll");
+    expect(!lt_touch_press_inside(),"letterbox press stays rejected after a drag into content");
+    near(lt_touch_press_y(),0,"letterbox press snapshot stays clamped at top");
+    mouse(SDL_MOUSEBUTTONDOWN,id,ww/2,wh/2);
+    mouse(SDL_MOUSEBUTTONUP,id,ww/2,wh/2);
+    windowEvent(id,SDL_WINDOWEVENT_LEAVE); poll();
+    expect(lt_touch_pressed() && !lt_pointer_inside() && lt_touch_press_inside(),"inside fast press survives leave after resize");
+    mouse(SDL_MOUSEBUTTONDOWN,id,-1,wh/2);
+    mouse(SDL_MOUSEBUTTONUP,id,-1,wh/2);
+    mouse(SDL_MOUSEMOTION,id,ww/2,wh/2); poll();
+    expect(lt_touch_pressed() && !lt_touch_press_inside() && lt_pointer_inside(),"outside-window press stays rejected after reentry");
     mouse(SDL_MOUSEMOTION,id,ww/2,0); poll();
     expect(!lt_pointer_inside(),"letterbox rejects hover");
     mouse(SDL_MOUSEMOTION,id,-1,wh/2); poll();
     expect(!lt_pointer_inside(),"outside-window coordinates reject hover");
     lt_shutdown();
     expect(!lt_pointer_inside(),"shutdown has no pointer");
+    expect(!lt_touch_press_inside(),"shutdown clears press membership");
+    near(lt_touch_press_x(),0,"shutdown clears press x");
+    near(lt_touch_press_y(),0,"shutdown clears press y");
+    // Direct backend poll without a renderer must ignore every mouse press.
+    expect(SDL_Init(SDL_INIT_EVENTS) == 0,"initialize event queue only, without a renderer");
+    mouse(SDL_MOUSEBUTTONDOWN,id,cx,cy);
+    expect(lt::platPoll(),"unbooted backend poll cannot create a press");
+    expect(lt::platTouch().seq == 0 && !lt::platTouch().pressInside,"missing renderer cannot latch stale input");
+    SDL_Quit();
 }
 } // namespace
 int main() {
     try {
+        expect(!lt_touch_press_inside(),"before boot has no press membership");
+        near(lt_touch_press_x(),0,"before boot press x");
+        near(lt_touch_press_y(),0,"before boot press y");
         mappingChecks();
         wick::Diagnostic d;
         expect(checkWickSource("lt.cursor_visible(true)\nlet x: num = lt.pointer_x()\nlet y: num = lt.pointer_y()\nlet inside: bool = lt.pointer_inside()", "pointer.wick",d),"compile-only new API");
         expect(!checkWickSource("lt.cursor_visible(1)","pointer.wick",d),"typed cursor API rejects numeric arguments");
         expect(!checkWickSource("let x: bool = lt.pointer_x()","pointer.wick",d),"typed pointer API rejects wrong result type");
+        expect(checkWickSource("let x: num = lt.touch_press_x()\nlet y: num = lt.touch_press_y()\nlet inside: bool = lt.touch_press_inside()", "press.wick",d),"compile typed press snapshot API");
+        expect(!checkWickSource("let x: bool = lt.touch_press_x()","press.wick",d),"press x rejects wrong result type");
+        expect(!checkWickSource("let inside: num = lt.touch_press_inside()","press.wick",d),"press membership rejects wrong result type");
         eventChecks("1",false); eventChecks("2",false);
         eventChecks("4",false); eventChecks("",true);
         std::cout << "desktop pointer: " << assertions << " assertions passed\n";

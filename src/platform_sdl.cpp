@@ -35,6 +35,7 @@ struct Plat {
     bool touchDown = false;
     uint32_t touchSeq = 0; // bumped per press — sub-frame taps stay visible
     float touchWinX = 0, touchWinY = 0;
+    PlatformPointer touchPress;
     bool pointerInWindow = false;
     float pointerWinX = 0, pointerWinY = 0;
 };
@@ -101,6 +102,18 @@ bool initFail(const char* what) {
     nativeFrameStats().configure(nullptr);
     P = Plat{};
     return false;
+}
+
+// Snapshot the actual projection at DOWN, never from subsequent hover/drag.
+// Invalid renderer geometry cannot create a press edge or reuse stale state.
+bool snapshotTouchPress(float windowX, float windowY) {
+    if (!P.win || !P.ren) return false;
+    int ww = 0, wh = 0, dw = 0, dh = 0;
+    SDL_GetWindowSize(P.win, &ww, &wh);
+    if (SDL_GetRendererOutputSize(P.ren, &dw, &dh) != 0 ||
+        ww <= 0 || wh <= 0 || dw <= 0 || dh <= 0) return false;
+    P.touchPress = mapPointer(windowX, windowY, true, ww, wh, dw, dh, P.nativeRendering);
+    return true;
 }
 
 void SDLCALL audioCallback(void*, Uint8* stream, int len) {
@@ -172,6 +185,13 @@ void platShutdown() {
 bool platPoll() {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
+        const Uint32 windowID = P.win ? SDL_GetWindowID(P.win) : 0;
+        // Only this live engine window owns mouse-as-touch and hover. An event
+        // without a window (ID zero) is not an engine-window press either.
+        const bool mouseMotion = e.type == SDL_MOUSEMOTION && windowID != 0 &&
+                                 e.motion.windowID == windowID;
+        const bool mouseButton = (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) &&
+                                 windowID != 0 && e.button.windowID == windowID;
         if (e.type == SDL_QUIT) P.quit = true;
         if (e.type == SDL_CONTROLLERDEVICEADDED) openFirstPad();
         if (e.type == SDL_CONTROLLERDEVICEREMOVED && P.pad) {
@@ -181,20 +201,18 @@ bool platPoll() {
         }
         // Hover is independent of mouse-as-touch. A released pointer keeps
         // moving while touch coordinates retain their historical semantics.
-        if (e.type == SDL_MOUSEMOTION &&
-            (e.motion.windowID == 0 || e.motion.windowID == SDL_GetWindowID(P.win))) {
+        if (mouseMotion) {
             P.pointerWinX = float(e.motion.x);
             P.pointerWinY = float(e.motion.y);
             P.pointerInWindow = true;
         }
-        if ((e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) &&
-            (e.button.windowID == 0 || e.button.windowID == SDL_GetWindowID(P.win))) {
+        if (mouseButton) {
             P.pointerWinX = float(e.button.x);
             P.pointerWinY = float(e.button.y);
             P.pointerInWindow = true;
         }
-        if (e.type == SDL_WINDOWEVENT &&
-            e.window.windowID == SDL_GetWindowID(P.win)) {
+        if (e.type == SDL_WINDOWEVENT && windowID != 0 &&
+            e.window.windowID == windowID) {
             if (e.window.event == SDL_WINDOWEVENT_ENTER) {
                 int mouseX = 0, mouseY = 0;
                 SDL_GetMouseState(&mouseX, &mouseY);
@@ -208,16 +226,16 @@ bool platPoll() {
                 P.pointerInWindow = false;
         }
         // mouse-as-touch: left button is the finger
-        if (e.type == SDL_MOUSEBUTTONDOWN &&
-            e.button.button == SDL_BUTTON_LEFT) {
+        if (mouseButton && e.type == SDL_MOUSEBUTTONDOWN &&
+            e.button.button == SDL_BUTTON_LEFT && snapshotTouchPress(float(e.button.x), float(e.button.y))) {
             P.touchDown = true;
             P.touchSeq++;
             P.touchWinX = (float)e.button.x;
             P.touchWinY = (float)e.button.y;
         }
-        if (e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT)
+        if (mouseButton && e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT)
             P.touchDown = false;
-        if (e.type == SDL_MOUSEMOTION && P.touchDown) {
+        if (mouseMotion && P.touchDown) {
             P.touchWinX = (float)e.motion.x;
             P.touchWinY = (float)e.motion.y;
         }
@@ -320,6 +338,8 @@ PlatformTouch platTouch() {
     PlatformTouch t;
     t.down = P.touchDown;
     t.seq = P.touchSeq;
+    t.pressX = P.touchPress.x; t.pressY = P.touchPress.y;
+    t.pressInside = P.touchPress.inside;
     if (!P.win || !P.ren) return t;
     // window points -> renderer output pixels (HiDPI) -> undo the letterbox
     int ww, wh, dw, dh;

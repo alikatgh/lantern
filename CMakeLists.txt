@@ -82,7 +82,7 @@ target_include_directories(lantern_pointer_test PRIVATE src ${SDL2_INCLUDE_DIRS}
 target_link_libraries(lantern_pointer_test lantern_core wick)
 target_compile_options(lantern_pointer_test PRIVATE -Wall -Wextra)
 add_test(NAME pointer COMMAND lantern_pointer_test)
-set_tests_properties(pointer PROPERTIES TIMEOUT 20 LABELS input
+set_tests_properties(touch pointer PROPERTIES TIMEOUT 20 LABELS input
     ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;SDL_RENDER_DRIVER=software")
 
 # wick language suite: semantics assertions + must-fail-to-compile cases.
