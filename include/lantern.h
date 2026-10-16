@@ -196,13 +196,22 @@ int    lt_touch_down(void);       /* held now */
 int    lt_touch_pressed(void);    /* went down this frame */
 float  lt_touch_x(void);
 float  lt_touch_y(void);
+/* Last accepted press/begin snapshot, paired with the existing _pressed edge.
+ * Coordinates are clamped logical 400x240 pixels, projected at begin rather
+ * than at read time. _inside rejects letterbox/outside presses. Drag, release,
+ * hover, window leave and resize cannot change it. Before boot/after shutdown:
+ * x=y=0, inside=0. Several begins in one poll select the last begin.         */
+#define LT_TOUCH_PRESS_V1 1
+float  lt_touch_press_x(void);
+float  lt_touch_press_y(void);
+int    lt_touch_press_inside(void);
 
 /* ---- desktop pointer ------------------------------------------------- */
 /* Hover position, independent of the last touched position. Coordinates
  * use the same clamped 400x240 logical space at every render density.
  * _inside is true only over the presented game content, not the letterbox
- * or outside the window. Use touch_pressed/x/y for left-click edges and
- * their press location. No desktop pointer on iOS: _inside is always 0.
+ * or outside the window. Use touch_pressed with touch_press_x/y/inside for left-click
+ * activation snapshots. No desktop pointer on iOS: _inside is always 0.
  * The native desktop cursor is visible by default; visibility has no effect
  * on hover/click tracking and is a no-op on iOS.                           */
 // Compile-time feature guard for external platform backends supporting both

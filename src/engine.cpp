@@ -322,6 +322,9 @@ int lt_touch_pressed(void) {
 
 float lt_touch_x(void) { return lt::platTouch().x; }
 float lt_touch_y(void) { return lt::platTouch().y; }
+float lt_touch_press_x(void) { return E.booted ? lt::platTouch().pressX : 0; }
+float lt_touch_press_y(void) { return E.booted ? lt::platTouch().pressY : 0; }
+int lt_touch_press_inside(void) { return E.booted && lt::platTouch().pressInside ? 1 : 0; }
 
 float lt_pointer_x(void) { return lt::platPointer().x; }
 float lt_pointer_y(void) { return lt::platPointer().y; }

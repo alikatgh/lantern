@@ -18,6 +18,10 @@ struct PlatformTouch {
     bool down = false;
     float x = 0, y = 0;
     uint32_t seq = 0;
+    // Logical snapshot of the latest accepted begin, bound to seq. Drag,
+    // release, hover and later presentation changes never rewrite it.
+    float pressX = 0, pressY = 0;
+    bool pressInside = false;
 };
 
 struct PlatformPointer {

@@ -147,7 +147,9 @@ The `lantern.build-info.v1` JSON reports actual pointer `host_bits`, configured
 `target_bits`, compiler architecture and `num` storage/mantissa bits and radix.
 Its additive `input_capabilities` contains `desktop-pointer-v1` when the
 desktop hover/cursor API is compiled in. This is an API capability, not native
-cursor or game UI validation. See [pointer input](docs/WICK.md#desktop-pointer-and-left-clicks).
+cursor or game UI validation. `touch-press-v1` additionally identifies immutable
+left-press/begin coordinates and content membership, separate from dragging.
+See [pointer input](docs/WICK.md#desktop-pointer-and-left-clicks).
 Only the exact invocation above is accepted; misuse returns a structured usage
 diagnostic and exit 2. `num` remains C++ `double`, checked bit helpers remain
 unsigned 32-bit operations, and the bytecode, game API and painted 2D/3D renderer

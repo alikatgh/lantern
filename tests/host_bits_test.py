@@ -86,7 +86,7 @@ with tempfile.TemporaryDirectory(prefix='wick-host-bits-', dir=a.scratch) as tem
         require(info[key] == actual[key], (key, info, actual))
     require(info['architecture'] in ('aarch64', 'x86_64', 'x86', 'arm', 'unknown'), info)
     require(info.get('render_capabilities') == ['native-render-v1', 'painted-2d-v1'], info)
-    require(info.get('input_capabilities') == ['desktop-pointer-v1'], info)
+    require(info.get('input_capabilities') == ['desktop-pointer-v1', 'touch-press-v1'], info)
     for arguments in [[], ['--bad'], ['--json', str(game)], ['--json', '--json']]:
         result = run([a.binary, '--build-info', *arguments], cwd=game, env=environment)
         require(result.returncode == 2 and result.stderr == '', result)

@@ -7,6 +7,7 @@
 // role SDL_Renderer plays on desktop.
 #include "platform.hpp"
 #include "render_target.hpp"
+#include "pointer_mapping.hpp"
 #include "platform_ios.h"
 #include "audio.hpp"
 #include "gfx.hpp" // SCREEN_W/H
@@ -36,6 +37,7 @@ bool g_nativeRendering = false;
 bool g_renderFailed = false;
 uint32_t g_touchSeq = 0; // bumped per press — sub-frame taps stay visible
 float g_touchPxX = 0, g_touchPxY = 0; // drawable pixels
+PlatformPointer g_touchPress;
 std::chrono::steady_clock::time_point g_t0;
 
 // The whole presentation "pipeline": sample the frame texture with
@@ -67,6 +69,10 @@ DstRect dstRect(int dw, int dh) {
 
 void iosSetMetalLayer(CAMetalLayer* layer) { g_layer = layer; }
 void iosTouchBegan(float px, float py) {
+    if (!g_layer || !g_pso || !std::isfinite(px) || !std::isfinite(py)) return;
+    int dw = int(g_layer.drawableSize.width), dh = int(g_layer.drawableSize.height);
+    if (dw <= 0 || dh <= 0) return;
+    g_touchPress = mapPointer(px, py, true, dw, dh, dw, dh, g_nativeRendering);
     g_touchDown = true;
     g_touchSeq++;
     g_touchPxX = px;
@@ -80,6 +86,8 @@ void iosTouchMoved(float px, float py) {
 void iosTouchEnded(void) { g_touchDown = false; }
 
 bool platInit(const char* /*title*/, int /*windowScale*/) {
+    g_touchDown = false; g_touchSeq = 0;
+    g_touchPxX = g_touchPxY = 0; g_touchPress = {};
     if (!g_layer) {
         std::fprintf(stderr, "platInit: no CAMetalLayer registered "
                              "(call lt::iosSetMetalLayer first)\n");
@@ -127,7 +135,8 @@ void platShutdown() {
     g_queue = nil;
     g_dev = nil;
     g_layer = nil;
-    g_touchDown = false;
+    g_touchDown = false; g_touchSeq = 0;
+    g_touchPxX = g_touchPxY = 0; g_touchPress = {};
     g_nativeRendering = false;
     g_renderFailed = false;
 }
@@ -240,6 +249,8 @@ PlatformTouch platTouch() {
     PlatformTouch t;
     t.down = g_touchDown;
     t.seq = g_touchSeq;
+    t.pressX = g_touchPress.x; t.pressY = g_touchPress.y;
+    t.pressInside = g_touchPress.inside;
     if (!g_layer) return t;
     int dw = (int)g_layer.drawableSize.width;
     int dh = (int)g_layer.drawableSize.height;

@@ -211,6 +211,9 @@ static Value wTouchDown(VM&, const Value*, int) { return Value::boolean(lt_touch
 static Value wTouchPressed(VM&, const Value*, int) { return Value::boolean(lt_touch_pressed() != 0); }
 static Value wTouchX(VM&, const Value*, int) { return Value::num(lt_touch_x()); }
 static Value wTouchY(VM&, const Value*, int) { return Value::num(lt_touch_y()); }
+static Value wTouchPressX(VM&, const Value*, int) { return Value::num(lt_touch_press_x()); }
+static Value wTouchPressY(VM&, const Value*, int) { return Value::num(lt_touch_press_y()); }
+static Value wTouchPressInside(VM&, const Value*, int) { return Value::boolean(lt_touch_press_inside() != 0); }
 static Value wPointerX(VM&, const Value*, int) { return Value::num(lt_pointer_x()); }
 static Value wPointerY(VM&, const Value*, int) { return Value::num(lt_pointer_y()); }
 static Value wPointerInside(VM&, const Value*, int) { return Value::boolean(lt_pointer_inside() != 0); }
@@ -266,6 +269,9 @@ static bool registerLT(VM* vm, std::string& err) {
         {"touch_pressed(): bool", wTouchPressed},
         {"touch_x(): num", wTouchX},
         {"touch_y(): num", wTouchY},
+        {"touch_press_x(): num", wTouchPressX},
+        {"touch_press_y(): num", wTouchPressY},
+        {"touch_press_inside(): bool", wTouchPressInside},
         {"pointer_x(): num", wPointerX},
         {"pointer_y(): num", wPointerY},
         {"pointer_inside(): bool", wPointerInside},

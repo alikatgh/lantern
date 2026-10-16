@@ -6,6 +6,21 @@ while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
 
 ## [Unreleased]
 
+### Latched press snapshots
+
+- Add typed C/Wick `touch_press_x/y/inside` getters and `touch-press-v1`
+  build information. Snapshot logical coordinates and content membership when
+  processing the last accepted begin, paired with the existing press sequence.
+  Motion, release, hover, leave and later resize cannot move the activation.
+- Preserve existing drag coordinates and fast-click edges. Reject foreign-window
+  or unscoped SDL events and unavailable projection; letterbox presses stay
+  outside after dragging inward. Reset snapshots at boot/shutdown. iOS applies
+  the same projection at touch-begin, separately from desktop hover.
+- Extend real SDL queue/C/Wick checks across render densities and native fit,
+  including same-poll down/drag/release/leave, foreign windows, letterboxing,
+  multiple begins and resize. These are dummy-driver input contracts, not device
+  or native display approval.
+
 ### Isolated desktop validation
 
 - Add optional `LANTERN_SAVE_ROOT` selecting an absolute existing directory.

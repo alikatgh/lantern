@@ -18,6 +18,7 @@
 #include <stdlib.h>
 
 static int g_fail = 0;
+static Uint32 g_window = 0;
 
 static void expect(int cond, const char* what) {
     if (!cond) {
@@ -41,9 +42,11 @@ static void pushMouse(Uint32 type, int x, int y) {
     SDL_zero(e);
     e.type = type;
     if (type == SDL_MOUSEMOTION) {
+        e.motion.windowID = g_window;
         e.motion.x = x;
         e.motion.y = y;
     } else {
+        e.button.windowID = g_window;
         e.button.button = SDL_BUTTON_LEFT;
         e.button.x = x;
         e.button.y = y;
@@ -64,6 +67,7 @@ int main(void) {
     SDL_Window* win = NULL;
     for (Uint32 id = 1; id <= 64 && !win; id++) win = SDL_GetWindowFromID(id);
     if (win) SDL_GetWindowSize(win, &ww, &wh);
+    g_window = SDL_GetWindowID(win);
     fprintf(stderr, "touch_test: window %s, size %dx%d\n",
             win ? "found" : "NOT FOUND (using requested size)", ww, wh);
     const int cx = ww / 2, cy = wh / 2;
@@ -72,6 +76,9 @@ int main(void) {
     lt_frame_poll();
     expect(lt_touch_down() == 0, "initially not down");
     expect(lt_touch_pressed() == 0, "initially not pressed");
+    expect(lt_touch_press_inside() == 0, "initially no press snapshot");
+    expectNear(lt_touch_press_x(), 0, 0.01f, "initial press x");
+    expectNear(lt_touch_press_y(), 0, 0.01f, "initial press y");
 
     /* press at window center → screen center, pressed exactly one frame */
     pushMouse(SDL_MOUSEBUTTONDOWN, cx, cy);
@@ -80,6 +87,9 @@ int main(void) {
     expect(lt_touch_pressed() == 1, "pressed on the press frame");
     expectNear(lt_touch_x(), 200, 2.0f, "center x");
     expectNear(lt_touch_y(), 120, 2.0f, "center y");
+    expect(lt_touch_press_inside() == 1, "C ABI press content membership");
+    expectNear(lt_touch_press_x(), 200, 2.0f, "C ABI press x");
+    expectNear(lt_touch_press_y(), 120, 2.0f, "C ABI press y");
 
     lt_frame_poll();
     expect(lt_touch_down() == 1, "still down next frame");
@@ -90,6 +100,8 @@ int main(void) {
     lt_frame_poll();
     expectNear(lt_touch_x(), 0, 1.5f, "corner x");
     expectNear(lt_touch_y(), 0, 1.5f, "corner y");
+    expectNear(lt_touch_press_x(), 200, 2.0f, "drag cannot move C ABI press x");
+    expectNear(lt_touch_press_y(), 120, 2.0f, "drag cannot move C ABI press y");
 
     /* drag to the far window corner: clamps to the last screen pixel */
     pushMouse(SDL_MOUSEMOTION, ww - 1, wh - 1);
