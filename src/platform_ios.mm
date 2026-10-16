@@ -245,6 +245,8 @@ void platRumble(float /*low*/, float /*high*/, int /*durationMs*/) {
     // GCController haptics need a CHHapticEngine per controller — later.
 }
 
+PlatformMouseButtons platMouseButtons() { return {}; }
+
 PlatformTouch platTouch() {
     PlatformTouch t;
     t.down = g_touchDown;

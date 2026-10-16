@@ -36,6 +36,7 @@ struct Plat {
     uint32_t touchSeq = 0; // bumped per press — sub-frame taps stay visible
     float touchWinX = 0, touchWinY = 0;
     PlatformPointer touchPress;
+    PlatformMouseButtons mouseButtons;
     bool pointerInWindow = false;
     float pointerWinX = 0, pointerWinY = 0;
 };
@@ -106,13 +107,13 @@ bool initFail(const char* what) {
 
 // Snapshot the actual projection at DOWN, never from subsequent hover/drag.
 // Invalid renderer geometry cannot create a press edge or reuse stale state.
-bool snapshotTouchPress(float windowX, float windowY) {
+bool projectPointerPress(float windowX, float windowY, PlatformPointer& press) {
     if (!P.win || !P.ren) return false;
     int ww = 0, wh = 0, dw = 0, dh = 0;
     SDL_GetWindowSize(P.win, &ww, &wh);
     if (SDL_GetRendererOutputSize(P.ren, &dw, &dh) != 0 ||
         ww <= 0 || wh <= 0 || dw <= 0 || dh <= 0) return false;
-    P.touchPress = mapPointer(windowX, windowY, true, ww, wh, dw, dh, P.nativeRendering);
+    press = mapPointer(windowX, windowY, true, ww, wh, dw, dh, P.nativeRendering);
     return true;
 }
 
@@ -225,13 +226,25 @@ bool platPoll() {
                 e.window.event == SDL_WINDOWEVENT_MINIMIZED)
                 P.pointerInWindow = false;
         }
-        // mouse-as-touch: left button is the finger
         if (mouseButton && e.type == SDL_MOUSEBUTTONDOWN &&
-            e.button.button == SDL_BUTTON_LEFT && snapshotTouchPress(float(e.button.x), float(e.button.y))) {
-            P.touchDown = true;
-            P.touchSeq++;
-            P.touchWinX = (float)e.button.x;
-            P.touchWinY = (float)e.button.y;
+            (e.button.button == SDL_BUTTON_LEFT || e.button.button == SDL_BUTTON_MIDDLE ||
+             e.button.button == SDL_BUTTON_RIGHT)) {
+            PlatformPointer press;
+            if (projectPointerPress(float(e.button.x), float(e.button.y), press)) {
+                if (press.inside) {
+                    if (e.button.button == SDL_BUTTON_LEFT) ++P.mouseButtons.left;
+                    if (e.button.button == SDL_BUTTON_MIDDLE) ++P.mouseButtons.middle;
+                    if (e.button.button == SDL_BUTTON_RIGHT) ++P.mouseButtons.right;
+                }
+                // Preserve mouse-as-touch, including its outside-begin snapshot.
+                if (e.button.button == SDL_BUTTON_LEFT) {
+                    P.touchPress = press;
+                    P.touchDown = true;
+                    P.touchSeq++;
+                    P.touchWinX = (float)e.button.x;
+                    P.touchWinY = (float)e.button.y;
+                }
+            }
         }
         if (mouseButton && e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT)
             P.touchDown = false;
@@ -333,6 +346,8 @@ void platRumble(float low, float high, int durationMs) {
     SDL_GameControllerRumble(P.pad, clamp16(low), clamp16(high),
                              (Uint32)durationMs);
 }
+
+PlatformMouseButtons platMouseButtons() { return P.mouseButtons; }
 
 PlatformTouch platTouch() {
     PlatformTouch t;

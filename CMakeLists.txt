@@ -115,6 +115,10 @@ add_test(NAME wick_bitlab COMMAND ${CMAKE_COMMAND} -E env
 # CPU renderer checks replace OS presentation/input with deterministic stubs.
 # The fixtures are generated in bounded temporary directories under the build.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME mouse_lua
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/mouse_lua_test.py
+        --binary $<TARGET_FILE:lantern> --scratch ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(mouse_lua PROPERTIES TIMEOUT 45 LABELS input)
 add_executable(lantern_native_frame_stats_test tests/native_frame_stats_test.cpp)
 target_include_directories(lantern_native_frame_stats_test PRIVATE src)
 target_compile_options(lantern_native_frame_stats_test PRIVATE -Wall -Wextra)

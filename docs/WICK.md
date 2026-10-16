@@ -126,6 +126,19 @@ and after shutdown the new getters return zero/false. iOS applies the same begin
 snapshot to drawable-pixel UITouch coordinates; this is separate from desktop
 hover. `touch-press-v1` in build-info and `LT_TOUCH_PRESS_V1` in the C header identify
 the additive interface.
+
+`mouse_pressed(button: str): bool` independently reports desktop `"left"`,
+`"middle"` and `"right"` DOWN edges accepted inside the projected game content.
+It retains a fast DOWN+UP in one poll and lasts exactly one frame. Held input,
+hover, release, leave and later resize cannot repeat or invalidate the edge.
+Unknown names return false; iOS has no desktop mouse and returns false.
+All three buttons reject letterbox/outside DOWN and foreign-window events.
+This deliberately differs from legacy `touch_pressed`, which still reports an
+outside left begin together with `touch_press_inside=false`; its drag semantics
+and snapshot remain unchanged. Right/middle clicks never alter left touch state.
+The C ABI is `lt_mouse_pressed(const char*)`; `LT_MOUSE_BUTTONS_V1` and
+`mouse-buttons-v1` in build-info identify the additive interface. Lua exposes
+the same function and requires a string argument.
 `cursor_visible(bool)` changes only native cursor visibility; input still tracks
 while hidden. An iOS host has no desktop pointer (`pointer_inside` is always
 false; coordinates are zero) and cursor visibility is a no-op. This API does not

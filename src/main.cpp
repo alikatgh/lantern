@@ -325,6 +325,12 @@ static int l_touch_pressed(lua_State* L) {
     return 1;
 }
 
+static int l_mouse_pressed(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TSTRING);
+    lua_pushboolean(L, lt_mouse_pressed(lua_tostring(L, 1)));
+    return 1;
+}
+
 // lt.touch() → x, y (400x240 screen coords, last touched position)
 static int l_touch(lua_State* L) {
     lua_pushnumber(L, lt_touch_x());
@@ -348,6 +354,7 @@ static void registerAPI(lua_State* L) {
         {"key", l_key},             {"pressed", l_pressed},
         {"touch", l_touch},         {"touch_down", l_touch_down},
         {"touch_pressed", l_touch_pressed},
+        {"mouse_pressed", l_mouse_pressed},
         {"gamepad", l_gamepad},     {"quit", l_quit},
         {"escape_quits", l_escape_quits},
         {"rumble", l_rumble},
@@ -569,7 +576,7 @@ static int buildInfoCLI(int argc, char** argv) {
                 "\"host_bits\":%zu,\"target_bits\":%u,\"architecture\":\"%s\","
                 "\"num\":{\"storage_bits\":%zu,\"mantissa_bits\":%d,\"radix\":%d},"
                 "\"render_capabilities\":[\"native-render-v1\",\"painted-2d-v1\"],"
-                "\"input_capabilities\":[\"desktop-pointer-v1\",\"touch-press-v1\"],"
+                "\"input_capabilities\":[\"desktop-pointer-v1\",\"touch-press-v1\",\"mouse-buttons-v1\"],"
                 "\"diagnostics\":[]}\n",
                 sizeof(void*) * CHAR_BIT, wick::HOST_BITS, architecture,
                 sizeof(double) * CHAR_BIT, std::numeric_limits<double>::digits,

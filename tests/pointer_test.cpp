@@ -48,13 +48,13 @@ void mappingChecks() {
     point(lt::mapPointer(std::numeric_limits<float>::quiet_NaN(),0,true,
                          400,240,400,240,false),0,0,false);
 }
-void mouse(Uint32 type, Uint32 windowID, int x, int y) {
+void mouse(Uint32 type, Uint32 windowID, int x, int y, Uint8 button = SDL_BUTTON_LEFT) {
     SDL_Event e{};
     e.type = type;
     if (type == SDL_MOUSEMOTION) {
         e.motion.windowID = windowID; e.motion.x = x; e.motion.y = y;
     } else {
-        e.button.windowID = windowID; e.button.button = SDL_BUTTON_LEFT;
+        e.button.windowID = windowID; e.button.button = button;
         e.button.x = x; e.button.y = y;
     }
     expect(SDL_PushEvent(&e) == 1, "push mouse event");
@@ -70,6 +70,79 @@ void runWick(const std::string& source) {
     std::string error;
     expect(registerLT(vm.get(), error), "register real Wick signatures");
     expect(wick::load(vm.get(), source, "pointer.wick", error), error.c_str());
+}
+void mouseButtonChecks(SDL_Window* win) {
+    const Uint32 id = SDL_GetWindowID(win);
+    int ww=0, wh=0;
+    SDL_GetWindowSize(win,&ww,&wh);
+    const int cx=ww/2, cy=wh/2;
+    const auto oldTouch = lt::platTouch();
+    expect(!lt_mouse_pressed(nullptr) && !lt_mouse_pressed("") && !lt_mouse_pressed("RIGHT"),
+           "unknown/null mouse names are false");
+    mouse(SDL_MOUSEBUTTONDOWN,id,cx,cy,SDL_BUTTON_RIGHT);
+    mouse(SDL_MOUSEBUTTONUP,id,cx,cy,SDL_BUTTON_RIGHT);
+    mouse(SDL_MOUSEMOTION,id,0,0);
+    windowEvent(id,SDL_WINDOWEVENT_LEAVE); poll();
+    expect(lt_mouse_pressed("right") && lt_mouse_pressed("right"),
+           "fast right click survives release/hover/leave and reads do not consume it");
+    expect(!lt_mouse_pressed("left") && !lt_mouse_pressed("middle") && !lt_touch_pressed(),
+           "right click never triggers another button or legacy touch");
+    expect(lt::platTouch().seq == oldTouch.seq && lt_touch_down() == oldTouch.down,
+           "right click preserves old touch sequence/down");
+    near(lt_touch_press_x(),oldTouch.pressX,"right click preserves left press x");
+    near(lt_touch_press_y(),oldTouch.pressY,"right click preserves left press y");
+    expect(lt_touch_press_inside() == oldTouch.pressInside,"right click preserves left press membership");
+    runWick(R"(
+check(lt.mouse_pressed("right"), "Wick receives fresh right mouse edge")
+check(not lt.mouse_pressed("left") and not lt.mouse_pressed("middle"), "Wick buttons are independent")
+check(not lt.mouse_pressed("unknown"), "Wick invalid name is false")
+)");
+    poll(); expect(!lt_mouse_pressed("right"),"right edge lasts one frame");
+    mouse(SDL_MOUSEBUTTONDOWN,id,cx,cy,SDL_BUTTON_MIDDLE);
+    mouse(SDL_MOUSEBUTTONUP,id,cx,cy,SDL_BUTTON_MIDDLE); poll();
+    expect(lt_mouse_pressed("middle") && !lt_mouse_pressed("right") && !lt_mouse_pressed("left"),
+           "middle is an independent fast edge");
+    for (Uint32 foreign : {Uint32(0),id+1000}) {
+        mouse(SDL_MOUSEBUTTONDOWN,foreign,cx,cy,SDL_BUTTON_RIGHT);
+        mouse(SDL_MOUSEBUTTONUP,foreign,cx,cy,SDL_BUTTON_RIGHT); poll();
+        expect(!lt_mouse_pressed("right") && !lt_mouse_pressed("middle"),
+               "foreign/unscoped window cannot generate mouse edges");
+    }
+    mouse(SDL_MOUSEBUTTONDOWN,id,cx,cy,SDL_BUTTON_RIGHT); poll();
+    expect(lt_mouse_pressed("right"),"held right press begins once");
+    poll(); expect(!lt_mouse_pressed("right"),"held right button does not repeat");
+    mouse(SDL_MOUSEMOTION,id,0,0); poll();
+    expect(!lt_mouse_pressed("right"),"held drag cannot create another edge");
+    mouse(SDL_MOUSEBUTTONUP,id,0,0,SDL_BUTTON_RIGHT); poll();
+    expect(!lt_mouse_pressed("right"),"right release is not a press");
+    // Current pointer reentry cannot turn a rejected DOWN into an activation.
+    mouse(SDL_MOUSEBUTTONDOWN,id,cx,0,SDL_BUTTON_RIGHT);
+    mouse(SDL_MOUSEBUTTONUP,id,cx,cy,SDL_BUTTON_RIGHT);
+    mouse(SDL_MOUSEMOTION,id,cx,cy); poll();
+    expect(!lt_mouse_pressed("right") && lt_pointer_inside(),"letterbox right DOWN stays rejected after reentry");
+    mouse(SDL_MOUSEBUTTONDOWN,id,-1,cy,SDL_BUTTON_RIGHT);
+    mouse(SDL_MOUSEBUTTONUP,id,cx,cy,SDL_BUTTON_RIGHT); poll();
+    expect(!lt_mouse_pressed("right"),"outside-window right DOWN is rejected");
+    mouse(SDL_MOUSEBUTTONDOWN,id,cx,0);
+    mouse(SDL_MOUSEBUTTONUP,id,cx,cy); poll();
+    expect(lt_touch_pressed() && !lt_touch_press_inside() && !lt_mouse_pressed("left"),
+           "generic left rejects letterbox while legacy outside touch behavior stays unchanged");
+    const auto before = lt::platTouch().seq;
+    mouse(SDL_MOUSEBUTTONDOWN,id,ww/4,wh/2);
+    mouse(SDL_MOUSEBUTTONUP,id,ww/4,wh/2);
+    mouse(SDL_MOUSEBUTTONDOWN,id,cx,cy,SDL_BUTTON_RIGHT);
+    mouse(SDL_MOUSEBUTTONUP,id,cx,cy,SDL_BUTTON_RIGHT);
+    mouse(SDL_MOUSEBUTTONDOWN,id,cx,cy,SDL_BUTTON_MIDDLE);
+    mouse(SDL_MOUSEBUTTONUP,id,cx,cy,SDL_BUTTON_MIDDLE); poll();
+    expect(lt_mouse_pressed("left") && lt_mouse_pressed("right") && lt_mouse_pressed("middle"),
+           "simultaneous buttons retain independent edges");
+    expect(lt_touch_pressed() && lt::platTouch().seq == before+1,"only left contributes to legacy touch sequence");
+    const float leftPressX = lt_touch_press_x();
+    expect(leftPressX < 200,"later right/middle press cannot overwrite left snapshot");
+    SDL_SetWindowSize(win,800,700);
+    expect(lt_mouse_pressed("right"),"later resize cannot invalidate already accepted mouse edge");
+    near(lt_touch_press_x(),leftPressX,"later resize preserves left snapshot");
+    poll(); expect(!lt_mouse_pressed("right"),"resize cannot create another mouse edge");
 }
 void eventChecks(const char* density, bool native) {
     unsetenv("LANTERN_RENDER_SCALE"); unsetenv("LANTERN_RENDER_NATIVE");
@@ -223,16 +296,23 @@ lt.cursor_visible(true)
     expect(!lt_pointer_inside(),"letterbox rejects hover");
     mouse(SDL_MOUSEMOTION,id,-1,wh/2); poll();
     expect(!lt_pointer_inside(),"outside-window coordinates reject hover");
+    mouseButtonChecks(win);
     lt_shutdown();
     expect(!lt_pointer_inside(),"shutdown has no pointer");
     expect(!lt_touch_press_inside(),"shutdown clears press membership");
     near(lt_touch_press_x(),0,"shutdown clears press x");
     near(lt_touch_press_y(),0,"shutdown clears press y");
+    expect(!lt_mouse_pressed("left") && !lt_mouse_pressed("right") && !lt_mouse_pressed("middle"),
+           "shutdown clears all mouse edges");
     // Direct backend poll without a renderer must ignore every mouse press.
     expect(SDL_Init(SDL_INIT_EVENTS) == 0,"initialize event queue only, without a renderer");
     mouse(SDL_MOUSEBUTTONDOWN,id,cx,cy);
+    mouse(SDL_MOUSEBUTTONDOWN,id,cx,cy,SDL_BUTTON_RIGHT);
     expect(lt::platPoll(),"unbooted backend poll cannot create a press");
     expect(lt::platTouch().seq == 0 && !lt::platTouch().pressInside,"missing renderer cannot latch stale input");
+    const auto noMouse = lt::platMouseButtons();
+    expect(noMouse.left == 0 && noMouse.middle == 0 && noMouse.right == 0,
+           "missing renderer cannot latch any mouse button");
     SDL_Quit();
 }
 } // namespace
@@ -241,6 +321,7 @@ int main() {
         expect(!lt_touch_press_inside(),"before boot has no press membership");
         near(lt_touch_press_x(),0,"before boot press x");
         near(lt_touch_press_y(),0,"before boot press y");
+        expect(!lt_mouse_pressed("right"),"before boot has no mouse edge");
         mappingChecks();
         wick::Diagnostic d;
         expect(checkWickSource("lt.cursor_visible(true)\nlet x: num = lt.pointer_x()\nlet y: num = lt.pointer_y()\nlet inside: bool = lt.pointer_inside()", "pointer.wick",d),"compile-only new API");
@@ -249,6 +330,9 @@ int main() {
         expect(checkWickSource("let x: num = lt.touch_press_x()\nlet y: num = lt.touch_press_y()\nlet inside: bool = lt.touch_press_inside()", "press.wick",d),"compile typed press snapshot API");
         expect(!checkWickSource("let x: bool = lt.touch_press_x()","press.wick",d),"press x rejects wrong result type");
         expect(!checkWickSource("let inside: num = lt.touch_press_inside()","press.wick",d),"press membership rejects wrong result type");
+        expect(checkWickSource("let pressed: bool = lt.mouse_pressed(\"right\")","mouse.wick",d),"compile typed mouse API");
+        expect(!checkWickSource("lt.mouse_pressed(1)","mouse.wick",d),"mouse API rejects numeric button argument");
+        expect(!checkWickSource("let pressed: num = lt.mouse_pressed(\"right\")","mouse.wick",d),"mouse API rejects wrong result type");
         eventChecks("1",false); eventChecks("2",false);
         eventChecks("4",false); eventChecks("",true);
         std::cout << "desktop pointer: " << assertions << " assertions passed\n";

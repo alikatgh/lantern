@@ -29,6 +29,12 @@ struct PlatformPointer {
     float x = 0, y = 0;
 };
 
+// Independent inside-content mouse DOWN sequences. A released sub-frame tap
+// remains visible; legacy mouse-as-touch state is not changed by this API.
+struct PlatformMouseButtons {
+    uint32_t left = 0, middle = 0, right = 0;
+};
+
 bool platInit(const char* title, int windowScale);
 void platShutdown();
 bool platPoll();                       // pump events; false = quit requested
@@ -42,6 +48,7 @@ int platInputDown(const char* name);   // named buttons (see lantern.h)
 int platGamepadConnected();
 void platRumble(float low, float high, int durationMs);
 PlatformTouch platTouch();
+PlatformMouseButtons platMouseButtons();
 PlatformPointer platPointer();
 void platCursorVisible(bool visible);
 std::string platSavePath(const char* name); // "" = storage unavailable

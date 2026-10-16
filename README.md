@@ -149,6 +149,8 @@ Its additive `input_capabilities` contains `desktop-pointer-v1` when the
 desktop hover/cursor API is compiled in. This is an API capability, not native
 cursor or game UI validation. `touch-press-v1` additionally identifies immutable
 left-press/begin coordinates and content membership, separate from dragging.
+`mouse-buttons-v1` identifies independent inside-content left/middle/right
+`mouse_pressed` edges without changing legacy left mouse-as-touch behavior.
 See [pointer input](docs/WICK.md#desktop-pointer-and-left-clicks).
 Only the exact invocation above is accepted; misuse returns a structured usage
 diagnostic and exit 2. `num` remains C++ `double`, checked bit helpers remain
