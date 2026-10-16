@@ -209,6 +209,7 @@ static Value wLoadSave(VM& vm, const Value* a, int) {
 }
 static Value wTouchDown(VM&, const Value*, int) { return Value::boolean(lt_touch_down() != 0); }
 static Value wTouchPressed(VM&, const Value*, int) { return Value::boolean(lt_touch_pressed() != 0); }
+static Value wMousePressed(VM&, const Value* a, int) { return Value::boolean(lt_mouse_pressed(wick::getStr(a[0]).c_str()) != 0); }
 static Value wTouchX(VM&, const Value*, int) { return Value::num(lt_touch_x()); }
 static Value wTouchY(VM&, const Value*, int) { return Value::num(lt_touch_y()); }
 static Value wTouchPressX(VM&, const Value*, int) { return Value::num(lt_touch_press_x()); }
@@ -267,6 +268,7 @@ static bool registerLT(VM* vm, std::string& err) {
         {"gamepad(): bool", wGamepad},
         {"touch_down(): bool", wTouchDown},
         {"touch_pressed(): bool", wTouchPressed},
+        {"mouse_pressed(str): bool", wMousePressed},
         {"touch_x(): num", wTouchX},
         {"touch_y(): num", wTouchY},
         {"touch_press_x(): num", wTouchPressX},

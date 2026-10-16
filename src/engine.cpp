@@ -12,6 +12,7 @@
 #include "native_frame_stats.hpp"
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -41,6 +42,7 @@ struct Engine {
     double fixedDt = 0;               // >0 = deterministic timing mode
     std::unordered_map<std::string, bool> prevDown; // for _pressed edges
     uint32_t prevTouchSeq = 0;                      // for lt_touch_pressed
+    lt::PlatformMouseButtons prevMouseButtons;
 };
 Engine E;
 
@@ -137,6 +139,7 @@ int lt_frame_poll(void) {
     for (const char* name : kInputNames)
         E.prevDown[name] = lt_input_down(name) != 0;
     E.prevTouchSeq = lt::platTouch().seq;
+    E.prevMouseButtons = lt::platMouseButtons();
     if (!lt::platPoll()) E.quit = true;
     // default dev behavior: Escape quits; lt_escape_quits(0) opts out
     if (E.escapeQuits && lt::platInputDown("escape") && !E.prevDown["escape"])
@@ -313,6 +316,15 @@ void lt_rumble(float low, float high, int duration_ms) {
 }
 
 int lt_touch_down(void) { return lt::platTouch().down ? 1 : 0; }
+
+int lt_mouse_pressed(const char* button) {
+    if (!E.booted || !button) return 0;
+    const auto now = lt::platMouseButtons();
+    if (std::strcmp(button, "left") == 0) return now.left != E.prevMouseButtons.left;
+    if (std::strcmp(button, "middle") == 0) return now.middle != E.prevMouseButtons.middle;
+    if (std::strcmp(button, "right") == 0) return now.right != E.prevMouseButtons.right;
+    return 0;
+}
 
 int lt_touch_pressed(void) {
     // seq-based, not level-based: a tap shorter than one frame (fast click,

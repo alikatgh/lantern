@@ -187,6 +187,13 @@ int    lt_gamepad_connected(void);
 /* Rumble the connected pad (no-op without one). Intensities 0..1.          */
 void   lt_rumble(float low, float high, int duration_ms);
 
+/* Desktop left/middle/right mouse DOWN accepted inside the projected game.
+ * Edge-only, including a DOWN+UP between polls. Hover, release, leave and later
+ * resize cannot change an accepted edge. Unknown/null names and iOS return 0.
+ * Unlike legacy mouse-as-touch, an outside/letterbox DOWN is rejected here. */
+#define LT_MOUSE_BUTTONS_V1 1
+int    lt_mouse_pressed(const char* button);
+
 /* ---- touch (single point, 3DS-style) ----------------------------------- */
 /* One touch point, like the 3DS touchscreen — deliberately not multitouch.
  * Coordinates are 400x240 screen pixels (the letterbox is undone for you),

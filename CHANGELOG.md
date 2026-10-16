@@ -6,6 +6,17 @@ while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
 
 ## [Unreleased]
 
+### Independent desktop mouse buttons
+
+- Add C/Wick/Lua `mouse_pressed(button)` for left/middle/right and advertise
+  `mouse-buttons-v1`. Accept only owned-window DOWN inside the current projected
+  content; retain fast press/release edges without held-input repetition.
+- Keep accepted edges independent of hover, leave, later resize and legacy left
+  mouse-as-touch snapshots. Invalid names, unavailable geometry, outside presses
+  and iOS produce no desktop mouse edge.
+- Extend SDL dummy-driver C/Wick checks and strict Lua argument tests. These
+  establish input contracts, separately from native game validation.
+
 ### Latched press snapshots
 
 - Add typed C/Wick `touch_press_x/y/inside` getters and `touch-press-v1`
