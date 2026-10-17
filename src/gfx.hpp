@@ -75,6 +75,7 @@ struct Gfx {
     // ---- 2D (batched, drawn over the 3D frame at endFrame) ----
     int  loadTexture(const std::string& bmpPath, int* outW = nullptr,
                      int* outH = nullptr);
+    bool textureHasAlpha(int tex) const;
     void rect(float x, float y, float w, float h, float r, float g, float b,
               float a);
     void sprite(int tex, float x, float y, float sx, float sy);
@@ -84,6 +85,15 @@ struct Gfx {
                   float v0, float u1, float v1);
     void spriteUVTinted(int tex, float x, float y, float w, float h, float u0,
                         float v0, float u1, float v1, float r, float g, float b);
+    void spriteGrounded(int tex, int frame, int cols, int rows,
+                        float x, float feet, float w, float h,
+                        float baseline, int dir,
+                        float r, float g, float b, float lift);
+    void glowRadial(float cx, float cy, float rx, float ry,
+                    float r, float g, float b, float a);
+    int  drawCount() const { return lastDrawCount_; }
+    void setRecordDraws(bool enabled) { recordDraws_ = enabled; }
+    void writeFrameJson(const std::string& jsonPath, long frameIndex) const;
     void print(const char* text, float x, float y, float r, float g, float b,
                float a);              // built-in 8x8 font, 8px advance
 
@@ -94,7 +104,18 @@ struct Gfx {
         int w = 0, h = 0;
         bool nearest = false;          // default is bilinear — the 3DS look
         bool opaque = false;           // every loaded texel has alpha 255
+        bool explicitAlpha = false;    // 32-bit BI_BITFIELDS RGBA mask
+        std::string path;
         std::vector<uint8_t> px;       // RGBA
+    };
+    struct DrawRecord {
+        const char* kind = "quad";
+        int tex = -1;
+        float x = 0, y = 0, w = 0, h = 0;
+        float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+        float r = 1, g = 1, b = 1, a = 1;
+        bool grounded = false;
+        float rotation = 0; // radians around the center of x/y/w/h
     };
     struct Mesh { std::vector<float> v; };  // VERT_FLOATS per vertex
     // A vertex mid-pipeline: clip-space position + shaded attributes.
@@ -147,6 +168,8 @@ struct Gfx {
     bool axisFastPath_ = true;
     bool painted2D_ = false;
     bool depthNeedsClear_ = false;
+    bool recordDraws_ = false;
+    int lastDrawCount_ = 0;
     std::unique_ptr<RowWorkers> rowWorkers_;
     int frameW_ = SCREEN_W, frameH_ = SCREEN_H;
     std::vector<uint8_t> fb_;          // frameW_*frameH_*4, RGBA top-down
@@ -154,6 +177,7 @@ struct Gfx {
     std::vector<Tex> textures_;
     std::vector<Mesh> meshes_;
     std::vector<Quad2D> quads_;
+    std::vector<DrawRecord> drawRecords_;
     int whiteTex_ = -1, fontTex_ = -1, shadowTex_ = -1;
 
     Mat4 view_, proj_, vp_;            // vp_ = proj*view, cached per camera
