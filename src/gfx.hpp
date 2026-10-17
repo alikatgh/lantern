@@ -115,6 +115,7 @@ struct Gfx {
         float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
         float r = 1, g = 1, b = 1, a = 1;
         bool grounded = false;
+        float rotation = 0; // radians around the center of x/y/w/h
     };
     struct Mesh { std::vector<float> v; };  // VERT_FLOATS per vertex
     // A vertex mid-pipeline: clip-space position + shaded attributes.

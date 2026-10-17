@@ -213,3 +213,13 @@ target_link_libraries(lantern_native_audio_test lantern_core wick)
 target_compile_options(lantern_native_audio_test PRIVATE -Wall -Wextra)
 add_test(NAME native_audio COMMAND lantern_native_audio_test ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(native_audio PROPERTIES TIMEOUT 30 LABELS audio)
+
+# Frame telemetry serialization and grounded-input checks need no OS backend.
+add_executable(lantern_frame_scene_test tests/frame_scene_test.cpp src/gfx.cpp)
+target_include_directories(lantern_frame_scene_test PRIVATE src)
+target_link_libraries(lantern_frame_scene_test PRIVATE Threads::Threads)
+target_compile_options(lantern_frame_scene_test PRIVATE -Wall -Wextra)
+add_test(NAME frame_scene
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/frame_scene_test.py
+        --binary $<TARGET_FILE:lantern_frame_scene_test> --scratch ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(frame_scene PROPERTIES TIMEOUT 60 LABELS renderer)

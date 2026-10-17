@@ -17,6 +17,10 @@
 #include <cstdio>
 #include <cstring>
 #include <new>
+#include <iomanip>
+#include <limits>
+#include <locale>
+#include <sstream>
 #include <mutex>
 #include <system_error>
 #include <thread>
@@ -988,7 +992,7 @@ void Gfx::pushQuadRot(int tex, float cx, float cy, float w, float h,
     quads_.push_back(q);
     ++lastDrawCount_;
     if (recordDraws_) {
-        drawRecords_.push_back({"sprite_rot", tex, cx - hw, cy - hh, w, h, u0, v0, u1, v1, r, g, b, a, false});
+        drawRecords_.push_back({"sprite_rot", tex, cx - hw, cy - hh, w, h, u0, v0, u1, v1, r, g, b, a, false, rot});
     }
 }
 
@@ -1035,8 +1039,22 @@ void Gfx::spriteGrounded(int tex, int frame, int cols, int rows,
                          float baseline, int dir,
                          float r, float g, float b, float lift) {
     if (tex < 0 || tex >= (int)textures_.size() || cols <= 0 || rows <= 0 ||
-        w <= 0 || h <= 0 || frame < 0)
+        w <= 0 || h <= 0 || frame < 0 || frame / cols >= rows ||
+        baseline < 0 || baseline > h || baseline + lift < 0)
         return;
+    for (float value : {x, feet, w, h, baseline, r, g, b, lift})
+        if (!std::isfinite(value)) return;
+    // Reject inverted/overflowed geometry before either half is queued. The
+    // legacy rasterizer converts scaled bounds to int before clipping them.
+    const float top = feet - baseline - lift, upper = baseline + lift;
+    const float lower = h - baseline, fx = std::floor(x);
+    if (!std::isfinite(upper) || !std::isfinite(h * (float)rows)) return;
+    for (float position : {fx, fx + w, top, top + upper, feet, feet + lower}) {
+        const double scaled = position * renderScale_;
+        if (!std::isfinite(scaled) ||
+            std::floor(scaled) < std::numeric_limits<int>::min() ||
+            std::ceil(scaled) > std::numeric_limits<int>::max()) return;
+    }
     const float fCols = (float)cols, fRows = (float)rows;
     const int col = frame % cols, row = frame / cols;
     float u0 = (float)col / fCols, u1 = (float)(col + 1) / fCols;
@@ -1044,11 +1062,10 @@ void Gfx::spriteGrounded(int tex, int frame, int cols, int rows,
     const float v0 = (float)row / fRows;
     const float soleV = v0 + baseline / (h * fRows);
     const float tr = r < 0 ? 0 : r, tg = g < 0 ? 0 : g, tb = b < 0 ? 0 : b;
-    const float fx = std::floor(x);
-    pushQuad(tex, fx, feet - baseline - lift, w, baseline + lift,
+    pushQuad(tex, fx, top, w, upper,
              u0, v0, u1, soleV, tr, tg, tb, 1);
     if (recordDraws_ && !drawRecords_.empty()) drawRecords_.back().grounded = true;
-    pushQuad(tex, fx, feet, w, h - baseline,
+    pushQuad(tex, fx, feet, w, lower,
              u0, soleV, u1, v0 + 1.0f / fRows, tr, tg, tb, 1);
     if (recordDraws_ && !drawRecords_.empty()) drawRecords_.back().grounded = true;
 }
@@ -1463,12 +1480,31 @@ void Gfx::writeFrameJson(const std::string& jsonPath, long frameIndex) const {
         else if (std::strcmp(r.kind, "font") == 0) fontCount++;
         else spriteCount++;
     }
-    std::fprintf(f, "{\"schema\":\"lantern.frame-scene.v1\",\"frame\":%ld,"
-                    "\"render_width\":%d,\"render_height\":%d,"
-                    "\"draw_count\":%zu,\"rect_count\":%d,\"sprite_count\":%d,"
-                    "\"glow_count\":%d,\"font_count\":%d,\"draws\":[",
-                 frameIndex, frameW_, frameH_, drawRecords_.size(),
-                 rectCount, spriteCount, glowCount, fontCount);
+    // Streams with an explicit classic locale keep JSON decimals independent
+    // of both LC_NUMERIC and the process-wide C++ locale.
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << std::fixed;
+    const auto number = [&](float value, int precision) {
+        if (std::isfinite(value)) out << std::setprecision(precision) << value;
+        else out << "null";
+    };
+    const auto string = [&](const std::string& value) {
+        constexpr char hex[] = "0123456789abcdef";
+        out << '"';
+        for (unsigned char c : value) {
+            if (c == '"' || c == '\\') out << '\\';
+            if (c < 32) out << "\\u00" << hex[c >> 4] << hex[c & 15];
+            else out << char(c);
+        }
+        out << '"';
+    };
+    out << "{\"schema\":\"lantern.frame-scene.v1\",\"frame\":" << frameIndex
+        << ",\"render_width\":" << frameW_ << ",\"render_height\":" << frameH_
+        << ",\"draw_count\":" << drawRecords_.size()
+        << ",\"rect_count\":" << rectCount << ",\"sprite_count\":" << spriteCount
+        << ",\"glow_count\":" << glowCount << ",\"font_count\":" << fontCount
+        << ",\"draws\":[";
     for (size_t i = 0; i < drawRecords_.size(); ++i) {
         const auto& r = drawRecords_[i];
         bool hasAlpha = false;
@@ -1477,23 +1513,30 @@ void Gfx::writeFrameJson(const std::string& jsonPath, long frameIndex) const {
             hasAlpha = textures_[r.tex].explicitAlpha;
             path = textures_[r.tex].path;
         }
-        if (i > 0) std::fputc(',', f);
-        std::fprintf(f, "{\"kind\":\"%s\",\"tex\":%d,\"x\":%.2f,\"y\":%.2f,\"w\":%.2f,\"h\":%.2f,"
-                        "\"u0\":%.4f,\"v0\":%.4f,\"u1\":%.4f,\"v1\":%.4f,"
-                        "\"r\":%.3f,\"g\":%.3f,\"b\":%.3f,\"a\":%.3f,"
-                        "\"grounded\":%s,\"explicit_alpha\":%s,\"tex_path\":\"",
-                     r.kind, r.tex, r.x, r.y, r.w, r.h,
-                     r.u0, r.v0, r.u1, r.v1,
-                     r.r, r.g, r.b, r.a,
-                     r.grounded ? "true" : "false",
-                     hasAlpha ? "true" : "false");
-        for (char c : path) {
-            if (c == '"' || c == '\\') std::fputc('\\', f);
-            std::fputc(c, f);
-        }
-        std::fputs("\"}", f);
+        if (i > 0) out << ',';
+        out << "{\"kind\":"; string(r.kind);
+        out << ",\"tex\":" << r.tex << ",\"x\":"; number(r.x, 2);
+        out << ",\"y\":"; number(r.y, 2);
+        out << ",\"w\":"; number(r.w, 2);
+        out << ",\"h\":"; number(r.h, 2);
+        out << ",\"u0\":"; number(r.u0, 4);
+        out << ",\"v0\":"; number(r.v0, 4);
+        out << ",\"u1\":"; number(r.u1, 4);
+        out << ",\"v1\":"; number(r.v1, 4);
+        out << ",\"r\":"; number(r.r, 3);
+        out << ",\"g\":"; number(r.g, 3);
+        out << ",\"b\":"; number(r.b, 3);
+        out << ",\"a\":"; number(r.a, 3);
+        out << ",\"grounded\":" << (r.grounded ? "true" : "false")
+            << ",\"explicit_alpha\":" << (hasAlpha ? "true" : "false")
+            << ",\"tex_path\":";
+        string(path);
+        out << ",\"rotation\":"; number(r.rotation, 9);
+        out << '}';
     }
-    std::fputs("]}\n", f);
+    out << "]}\n";
+    const std::string json = out.str();
+    std::fwrite(json.data(), 1, json.size(), f);
     std::fclose(f);
     std::fprintf(stderr, "LANTERN_FRAME_JSON saved %s\n", jsonPath.c_str());
 }
