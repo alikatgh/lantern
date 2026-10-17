@@ -37,6 +37,7 @@ struct Engine {
     // engine-owned verification contract (works for EVERY host, not just
     // the Lua runner): LANTERN_SHOT/_FRAME/_FIXED_DT env vars
     const char* shotPath = nullptr;
+    const char* frameJsonPath = nullptr;
     int shotFrame = 60;
     long frame = 0;
     double fixedDt = 0;               // >0 = deterministic timing mode
@@ -111,6 +112,8 @@ int lt_boot(const char* title, int window_scale) {
     // LANTERN_SHOT=<prefix> [LANTERN_SHOT_FRAME=N] → save <prefix>.bmp at
     // frame N (default 60) and request quit.
     E.shotPath = std::getenv("LANTERN_SHOT");
+    E.frameJsonPath = std::getenv("LANTERN_FRAME_JSON");
+    if (E.frameJsonPath) E.gfx.setRecordDraws(true);
     if (const char* sf = std::getenv("LANTERN_SHOT_FRAME"))
         E.shotFrame = std::atoi(sf);
     // LANTERN_FIXED_DT=<seconds|1> → deterministic dt and lt_time (CI):
@@ -171,9 +174,10 @@ void lt_frame_begin(void) {
 void lt_frame_end(void) {
     if (!E.booted) return;
     E.gfx.endFrame(); // flush the 2D batch into our framebuffer
-    if (E.shotPath && E.frame == E.shotFrame) {
-        E.gfx.screenshot(std::string(E.shotPath) + ".bmp");
-        E.quit = true; // verification run: capture, then exit the loop
+    if (E.frame == E.shotFrame) {
+        if (E.shotPath) E.gfx.screenshot(std::string(E.shotPath) + ".bmp");
+        if (E.frameJsonPath) E.gfx.writeFrameJson(std::string(E.frameJsonPath) + ".json", E.frame);
+        if (E.shotPath || E.frameJsonPath) E.quit = true; // verification run: capture, then exit the loop
     }
     E.frame++;
     lt::platPresent(E.gfx.framebuffer(), E.gfx.framebufferWidth(),
@@ -299,6 +303,28 @@ void lt_sprite_uv_tinted(int tex, float x, float y, float w, float h, float u0,
 void lt_print(const char* text, float x, float y, float r, float g, float b,
               float a) {
     E.gfx.print(text, x, y, r, g, b, a);
+}
+
+int lt_texture_has_alpha(int tex) {
+    return E.booted && E.gfx.textureHasAlpha(tex) ? 1 : 0;
+}
+
+void lt_sprite_grounded(int tex, int frame, int cols, int rows,
+                        float x, float feet, float w, float h,
+                        float baseline, int dir,
+                        float r, float g, float b, float lift) {
+    if (E.booted)
+        E.gfx.spriteGrounded(tex, frame, cols, rows, x, feet, w, h, baseline, dir, r, g, b, lift);
+}
+
+void lt_glow_radial(float cx, float cy, float rx, float ry,
+                    float r, float g, float b, float a) {
+    if (E.booted)
+        E.gfx.glowRadial(cx, cy, rx, ry, r, g, b, a);
+}
+
+int lt_draw_count(void) {
+    return E.booted ? E.gfx.drawCount() : 0;
 }
 
 int lt_input_down(const char* name) { return lt::platInputDown(name); }

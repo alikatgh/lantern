@@ -66,7 +66,9 @@ double lt_frame_dt(void);         /* seconds since previous poll (<=0.1)   */
  *   LANTERN_FIXED_DT=<sec|1>  deterministic mode: lt_frame_dt and lt_time
  *                             advance by a fixed step — REQUIRED for
  *                             cross-machine-reproducible screenshots
- *   LANTERN_NOVSYNC=1         uncap the frame rate (benchmarks)           */
+ *   LANTERN_NOVSYNC=1         uncap the frame rate (benchmarks)
+ *   LANTERN_FRAME_JSON=<pfx>  save <pfx>.json (lantern.frame-scene.v1) of
+ *                             the 2D draw telemetry at LANTERN_SHOT_FRAME   */
 
 /* ---- screen ----------------------------------------------------------- */
 int    lt_screen_w(void);         /* 400 */
@@ -146,6 +148,19 @@ void   lt_sprite_uv(int tex, float x, float y, float w, float h,
 void   lt_sprite_uv_tinted(int tex, float x, float y, float w, float h,
                            float u0, float v0, float u1, float v1,
                            float r, float g, float b);
+/* Grounded 2D atlas cell: keeps feet planted at `feet` while lifting the
+ * upper body above `baseline` by `lift` logical pixels.                   */
+#define LT_AGENTIC_2D_V1 1
+int    lt_texture_has_alpha(int tex);
+void   lt_sprite_grounded(int tex, int frame, int cols, int rows,
+                          float x, float feet, float w, float h,
+                          float baseline, int dir,
+                          float r, float g, float b, float lift);
+/* Smooth radial 2D glow quad centered at (cx,cy) with radii (rx,ry).      */
+void   lt_glow_radial(float cx, float cy, float rx, float ry,
+                      float r, float g, float b, float a);
+/* Number of 2D quads recorded in the current/last completed frame.        */
+int    lt_draw_count(void);
 /* Built-in 8x8 debug font (uppercase; lowercase is upcased). 8px advance. */
 void   lt_print(const char* text, float x, float y,
                 float r, float g, float b, float a);

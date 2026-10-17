@@ -6,6 +6,14 @@ while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
 
 ## [Unreleased]
 
+### Agentic 2D engine primitives and frame telemetry
+
+- Add `lt_sprite_grounded` (`lt.sprite_grounded`), `lt_glow_radial` (`lt.glow_radial`), `lt_texture_has_alpha` (`lt.texture_has_alpha`), `lt_draw_count` (`lt.draw_count`), and advertise `agentic-2d-v1` in `render_capabilities`.
+- `lt_sprite_grounded` splits character sprites into upper body and grounded sole slices along the integer baseline, enabling breathing and posture adjustments without hard UV edge seams or floating feet.
+- `lt_glow_radial` draws smooth radial lighting and falloff quads using Lantern's built-in 64×64 radial texture.
+- Add `clamp(v, lo, hi)` and `lerp(a, b, t)` builtins to the Wick standard library.
+- Add `LANTERN_FRAME_JSON=<prefix>` environment contract to export structured 2D draw telemetry (`lantern.frame-scene.v1`) at `LANTERN_SHOT_FRAME`, recording quad counts, draw kinds, UV coordinates, colors, and explicit alpha flags.
+
 ### Independent desktop mouse buttons
 
 - Add C/Wick/Lua `mouse_pressed(button)` for left/middle/right and advertise

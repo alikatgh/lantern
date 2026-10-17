@@ -37,6 +37,9 @@ let n = 0
 for i in 0x0..0x10 { n = n + i }
 check(n == 120, "hex ranges")
 check(1.25 + 2.5 == 3.75, "decimal unchanged")
+check(clamp(15, 0, 10) == 10 and clamp(-5, 0, 10) == 0 and clamp(5, 0, 10) == 5, "clamp")
+check(clamp(5, 10, 0) == 5 and clamp(15, 10, 0) == 10 and clamp(-5, 10, 0) == 0, "clamp reversed")
+check(lerp(0, 100, 0.25) == 25 and lerp(10, 20, 0.5) == 15, "lerp")
 check(bit_and(0xA5, 0x0F) == 5, "mask")
 check(bit_or(0xA0, 0x05) == 0xA5, "or")
 check(bit_xor(0xAA, 0xFF) == 0x55, "xor")

@@ -488,6 +488,14 @@ static Value nEnv(VM& vm, const Value* a, int) {
 static Value nAbs(VM&, const Value* a, int) { return Value::num(std::fabs(a[0].d)); }
 static Value nMin(VM&, const Value* a, int) { return Value::num(std::fmin(a[0].d, a[1].d)); }
 static Value nMax(VM&, const Value* a, int) { return Value::num(std::fmax(a[0].d, a[1].d)); }
+static Value nClamp(VM&, const Value* a, int) {
+    double v = a[0].d, lo = a[1].d, hi = a[2].d;
+    if (lo > hi) std::swap(lo, hi);
+    return Value::num(std::clamp(v, lo, hi));
+}
+static Value nLerp(VM&, const Value* a, int) {
+    return Value::num(a[0].d + (a[1].d - a[0].d) * a[2].d);
+}
 static Value nSqrt(VM&, const Value* a, int) { return Value::num(std::sqrt(a[0].d)); }
 static Value nSin(VM&, const Value* a, int) { return Value::num(std::sin(a[0].d)); }
 static Value nCos(VM&, const Value* a, int) { return Value::num(std::cos(a[0].d)); }
@@ -590,6 +598,8 @@ static void installBuiltins(VM* vm) {
     addNative(vm, nullptr, "abs(num): num", nAbs, e);
     addNative(vm, nullptr, "min(num, num): num", nMin, e);
     addNative(vm, nullptr, "max(num, num): num", nMax, e);
+    addNative(vm, nullptr, "clamp(num, num, num): num", nClamp, e);
+    addNative(vm, nullptr, "lerp(num, num, num): num", nLerp, e);
     addNative(vm, nullptr, "sqrt(num): num", nSqrt, e);
     addNative(vm, nullptr, "sin(num): num", nSin, e);
     addNative(vm, nullptr, "cos(num): num", nCos, e);

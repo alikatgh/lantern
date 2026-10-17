@@ -100,6 +100,20 @@ static Value wSprite(VM&, const Value* a, int) { lt_sprite((int)a[0].d, NARG(1),
 static Value wSpriteEx(VM&, const Value* a, int) { lt_sprite_ex((int)a[0].d, NARG(1), NARG(2), NARG(3), NARG(4), NARG(5), NARG(6), NARG(7), NARG(8), NARG(9)); return Value::nil(); }
 static Value wSpriteUV(VM&, const Value* a, int) { lt_sprite_uv((int)a[0].d, NARG(1), NARG(2), NARG(3), NARG(4), NARG(5), NARG(6), NARG(7), NARG(8)); return Value::nil(); }
 static Value wSpriteUVTinted(VM&, const Value* a, int) { lt_sprite_uv_tinted((int)a[0].d, NARG(1), NARG(2), NARG(3), NARG(4), NARG(5), NARG(6), NARG(7), NARG(8), NARG(9), NARG(10), NARG(11)); return Value::nil(); }
+static Value wTextureHasAlpha(VM&, const Value* a, int) { return Value::boolean(lt_texture_has_alpha((int)a[0].d) != 0); }
+static Value wSpriteGrounded(VM&, const Value* a, int) {
+    lt_sprite_grounded((int)a[0].d, (int)a[1].d, (int)a[2].d, (int)a[3].d,
+                       NARG(4), NARG(5), NARG(6), NARG(7),
+                       NARG(8), (int)a[9].d,
+                       NARG(10), NARG(11), NARG(12), NARG(13));
+    return Value::nil();
+}
+static Value wGlowRadial(VM&, const Value* a, int) {
+    lt_glow_radial(NARG(0), NARG(1), NARG(2), NARG(3),
+                   NARG(4), NARG(5), NARG(6), NARG(7));
+    return Value::nil();
+}
+static Value wDrawCount(VM&, const Value*, int) { return Value::num(lt_draw_count()); }
 static Value wPrint(VM&, const Value* a, int) { lt_print(wick::getStr(a[0]).c_str(), NARG(1), NARG(2), NARG(3), NARG(4), NARG(5), NARG(6)); return Value::nil(); }
 static Value wKey(VM&, const Value* a, int) { return Value::boolean(lt_input_down(wick::getStr(a[0]).c_str()) != 0); }
 static Value wPressed(VM&, const Value* a, int) { return Value::boolean(lt_input_pressed(wick::getStr(a[0]).c_str()) != 0); }
@@ -262,6 +276,10 @@ static bool registerLT(VM* vm, std::string& err) {
         {"sprite_ex(num, num, num, num=1, num=1, num=0, num=1, num=1, num=1, num=1)", wSpriteEx},
         {"sprite_uv(num, num, num, num, num, num, num, num, num)", wSpriteUV},
         {"sprite_uv_tinted(num, num, num, num, num, num, num, num, num, num, num, num)", wSpriteUVTinted},
+        {"texture_has_alpha(num): bool", wTextureHasAlpha},
+        {"sprite_grounded(num, num, num, num, num, num, num, num, num, num=1, num=1, num=1, num=1, num=0)", wSpriteGrounded},
+        {"glow_radial(num, num, num, num, num=1, num=1, num=1, num=1)", wGlowRadial},
+        {"draw_count(): num", wDrawCount},
         {"print(str, num, num, num=1, num=1, num=1, num=1)", wPrint},
         {"key(str): bool", wKey},
         {"pressed(str): bool", wPressed},
