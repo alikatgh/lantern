@@ -18,14 +18,22 @@ extern "C" {
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
-#include <fcntl.h>
 #include <limits>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <vector>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <random>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 static std::string g_gameDir;
 
@@ -507,13 +515,50 @@ static int checkCLI(int argc, char** argv) {
         if (requested.extension() != ".wick")
             return failure("io", "LANTERN_CHECK_SOURCE", "source must be a .wick file or a directory containing main.wick");
         // Resolve ancestors, including macOS /tmp -> /private/tmp, but leave
-        // the final component for O_NOFOLLOW on the descriptor we read.
+        // the final component for no-follow validation on the handle we read.
         fs::path parent = requested.parent_path();
         if (parent.empty()) parent = ".";
         parent = fs::canonical(parent, ec);
         if (ec)
             return failure("io", "LANTERN_CHECK_IO", "cannot resolve source directory: " + ec.message());
-        sourcePath = (parent / requested.filename()).string();
+        fs::path resolved = parent / requested.filename();
+        sourcePath = resolved.string();
+#ifdef _WIN32
+        HANDLE fd = CreateFileW(resolved.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                                nullptr, OPEN_EXISTING,
+                                FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+                                nullptr);
+        if (fd == INVALID_HANDLE_VALUE)
+            return failure("io", "LANTERN_CHECK_IO",
+                           "cannot open source: Windows error " + std::to_string(GetLastError()));
+        struct Descriptor {
+            HANDLE fd;
+            ~Descriptor() { CloseHandle(fd); }
+        } descriptor{fd};
+        BY_HANDLE_FILE_INFORMATION info{};
+        if (!GetFileInformationByHandle(fd, &info))
+            return failure("io", "LANTERN_CHECK_IO", "cannot inspect source descriptor");
+        if (GetFileType(fd) != FILE_TYPE_DISK ||
+            (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)))
+            return failure("io", "LANTERN_CHECK_SOURCE", "source must be a regular file");
+        LARGE_INTEGER size{};
+        if (!GetFileSizeEx(fd, &size) || size.QuadPart < 0)
+            return failure("io", "LANTERN_CHECK_IO", "cannot inspect source size");
+        if (static_cast<unsigned long long>(size.QuadPart) > wick::SOURCE_LIMIT_BYTES)
+            return failure("io", "WICK_SOURCE_LIMIT", "source exceeds 8388608 bytes");
+        std::string source;
+        char buffer[8192];
+        while (source.size() <= wick::SOURCE_LIMIT_BYTES) {
+            size_t remaining = wick::SOURCE_LIMIT_BYTES + 1 - source.size();
+            DWORD count = 0;
+            if (!ReadFile(fd, buffer, static_cast<DWORD>(std::min(sizeof buffer, remaining)),
+                          &count, nullptr))
+                return failure("io", "LANTERN_CHECK_IO",
+                               "cannot read source: Windows error " + std::to_string(GetLastError()));
+            if (!count) break;
+            source.append(buffer, static_cast<size_t>(count));
+        }
+#else
         int fd = open(sourcePath.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
         if (fd < 0)
             return failure("io", errno == ELOOP ? "LANTERN_CHECK_SOURCE" : "LANTERN_CHECK_IO",
@@ -541,6 +586,7 @@ static int checkCLI(int argc, char** argv) {
             if (!count) break;
             source.append(buffer, (size_t)count);
         }
+#endif
         if (source.size() > wick::SOURCE_LIMIT_BYTES)
             return failure("io", "WICK_SOURCE_LIMIT", "source exceeds 8388608 bytes");
         wick::Diagnostic diagnostic;
@@ -595,6 +641,43 @@ int main(int argc, char** argv) {
     // a .lant package: verify, extract to a fresh temp dir, run from there
     if (g_gameDir.size() > 5 &&
         g_gameDir.compare(g_gameDir.size() - 5, 5, ".lant") == 0) {
+#ifdef _WIN32
+        std::string tempDir;
+        try {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            const fs::path parent = fs::temp_directory_path(ec);
+            if (ec) {
+                std::fprintf(stderr, "lantern: cannot find temp dir: %s\n", ec.message().c_str());
+                return 1;
+            }
+            std::random_device random;
+            std::uniform_int_distribution<unsigned> digit(0, 15);
+            for (unsigned attempt = 0; attempt < 128; ++attempt) {
+                std::string name = "lantern-";
+                for (unsigned i = 0; i < 32; ++i)
+                    name += "0123456789abcdef"[digit(random)];
+                fs::path candidate = parent / name;
+                if (fs::create_directory(candidate, ec)) {
+                    tempDir = candidate.string();
+                    break;
+                }
+                // Existing directories, files and links are collisions, never
+                // extraction destinations. create_directory claims atomically.
+                if (ec && ec != std::errc::file_exists) {
+                    std::fprintf(stderr, "lantern: cannot create temp dir: %s\n", ec.message().c_str());
+                    return 1;
+                }
+            }
+        } catch (const std::exception& error) {
+            std::fprintf(stderr, "lantern: cannot create temp dir: %s\n", error.what());
+            return 1;
+        }
+        if (tempDir.empty()) {
+            std::fprintf(stderr, "lantern: cannot create unique temp dir\n");
+            return 1;
+        }
+#else
         const char* tenv = std::getenv("TMPDIR");
         std::string tmpl = std::string(tenv ? tenv : "/tmp");
         if (tmpl.empty() || tmpl.back() != '/') tmpl += '/';
@@ -605,12 +688,14 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "lantern: cannot create temp dir\n");
             return 1;
         }
+        std::string tempDir = buf.data();
+#endif
         std::string err;
-        if (!lt::pkgExtract(g_gameDir, buf.data(), err)) {
+        if (!lt::pkgExtract(g_gameDir, tempDir, err)) {
             std::fprintf(stderr, "lantern: %s\n", err.c_str());
             return 1;
         }
-        g_gameDir = buf.data();
+        g_gameDir = tempDir;
         lt::pathSetPackageMode(true);
         lt::pathSetScreenshotDir(g_gameDir); // screenshots stay in extract dir
     }

@@ -2,6 +2,9 @@
 #include "package.hpp"
 #include <cstdio>
 #include <cstring>
+#ifdef _WIN32
+#include <filesystem>
+#endif
 #include <sys/stat.h>
 
 namespace lt {
@@ -42,7 +45,11 @@ bool nameOk(const std::string& n) {
         if (seg == "." || seg == "..") return false;
         if (seg[0] == '.') return false;
         for (char c : seg)
-            if (c == '\\' || c == 0) return false;
+            if (c == '\\' || c == 0
+#ifdef _WIN32
+                || c == ':'
+#endif
+            ) return false;
         i = j + 1;
     }
     return true;
@@ -50,6 +57,14 @@ bool nameOk(const std::string& n) {
 
 // mkdir -p for the parent of path (path is root/name, may contain '/').
 bool ensureParentDirs(const std::string& path) {
+#ifdef _WIN32
+    // Handles drive roots, UNC paths and native backslashes without POSIX mkdir.
+    const auto parent = std::filesystem::path(path).parent_path();
+    if (parent.empty()) return true;
+    std::error_code ec;
+    std::filesystem::create_directories(parent, ec);
+    return !ec && std::filesystem::is_directory(parent, ec) && !ec;
+#else
     size_t slash = path.find_last_of('/');
     if (slash == std::string::npos) return true;
     std::string dir = path.substr(0, slash);
@@ -71,6 +86,7 @@ bool ensureParentDirs(const std::string& path) {
         }
     }
     return true;
+#endif
 }
 
 } // namespace

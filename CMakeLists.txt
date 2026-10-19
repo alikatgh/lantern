@@ -105,6 +105,15 @@ add_test(NAME path_sandbox
          COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/path_sandbox_test.sh
                       $<TARGET_FILE:lantern>)
 
+# Pure filesystem checks also compile on Windows without POSIX shell fixtures.
+add_executable(lantern_path_portability_test tests/path_portability_test.cpp
+    src/package.cpp src/path_sandbox.cpp)
+target_include_directories(lantern_path_portability_test PRIVATE src)
+target_compile_options(lantern_path_portability_test PRIVATE -Wall -Wextra)
+add_test(NAME path_portability COMMAND lantern_path_portability_test
+    ${CMAKE_CURRENT_BINARY_DIR}/path-portability-fixtures)
+set_tests_properties(path_portability PROPERTIES TIMEOUT 15)
+
 
 # Run the release example through the real host, including its flag assertions.
 add_test(NAME wick_bitlab COMMAND ${CMAKE_COMMAND} -E env
