@@ -4,6 +4,14 @@ Make games that look and feel like the Nintendo 3DS generation: low-poly 3D
 with per-vertex lighting, pixel-perfect 2D, one 400×240 logical screen. The
 constraints are the aesthetic — nothing here is a filter.
 
+## Editor support
+
+Read Wick code in VS Code with [Wick Language](https://marketplace.visualstudio.com/items?itemName=albertn.wick-language), with highlighting built from the real compiler source.
+
+Install: `ext install albertn.wick-language`
+
+Highlighting, bracket matching, comments and snippets only; no diagnostics or completions yet.
+
 **The renderer is ours, all the way down.** No GPU API: every pixel of the
 frame is computed by the engine's own software rasterizer —
 transform, clipping, perspective-correct rasterization, depth, bilinear
