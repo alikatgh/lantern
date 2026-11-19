@@ -30,6 +30,13 @@ before reproducing anything.
 
 ## Chronological log (newest first — 5 lines max each)
 
+### 2026-10-19 — MinGW package/path failures reported by @yokamak
+- Report: [Windows 0.8.0 guide](https://qiita.com/yokamak/items/2e8932734ad7f14cde14) found incompatible mkdir, realpath and mkdtemp calls, plus backslash sandbox failures.
+- Fix: Windows filesystem directory creation; canonical generic paths; bounded atomic Windows temp creation; Win32 compile-check handles.
+- Regression: nested extraction, spaces, valid loads and sibling-prefix symlink escapes in `path_portability`; existing package/path/check CLI tests.
+- Verified: macOS Release host/packager build, five targeted CTests and the demo asset-loading run pass; independent source review complete.
+- Remaining: native MinGW/demo verification; current audio/save POSIX calls and POSIX-only test fixtures need separate Windows work.
+
 ### 2026-07-14 — store path/pack sandbox + wick records
 - Symptom: design critique — loads joined paths naively; packages flat-only
   so KORA `assets/` could not ship; parallel prop lists painful.

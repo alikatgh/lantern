@@ -1,11 +1,14 @@
-// path_sandbox.cpp — lexical + realpath confinement under a game root.
+// path_sandbox.cpp — lexical + canonical confinement under a game root.
 #include "path_sandbox.hpp"
 #include <cctype>
-#include <cstdlib>
-#include <limits.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include <filesystem>
 #include <vector>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace lt {
 
@@ -27,7 +30,11 @@ bool normalizeRel(const std::string& rel, std::string& out, std::string& err) {
     }
     // Reject Windows-style drive or any '\\'
     for (char c : rel) {
-        if (c == '\\' || c == 0) {
+        if (c == '\\' || c == 0
+#ifdef _WIN32
+            || c == ':' // drive-qualified names and alternate data streams
+#endif
+        ) {
             err = "invalid path character";
             return false;
         }
@@ -66,10 +73,65 @@ bool normalizeRel(const std::string& rel, std::string& out, std::string& err) {
     return true;
 }
 
-std::string absPath(const std::string& p) {
-    char buf[PATH_MAX];
-    if (realpath(p.c_str(), buf)) return std::string(buf);
-    return {};
+std::string absPath(const std::string& p, std::error_code& ec) {
+#ifdef _WIN32
+    // MinGW 13's filesystem::canonical does not resolve Windows junctions.
+    // Follow reparse points when opening, then query the actual target path.
+    const std::filesystem::path requested(p);
+    HANDLE handle = CreateFileW(requested.c_str(), 0,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        ec.assign(GetLastError(), std::system_category());
+        return {};
+    }
+    struct CloseHandleOnExit {
+        HANDLE handle;
+        ~CloseHandleOnExit() { CloseHandle(handle); }
+    } close{handle};
+    const DWORD size = GetFinalPathNameByHandleW(handle, nullptr, 0, FILE_NAME_NORMALIZED);
+    if (!size) {
+        // The handle exists: even ERROR_PATH_NOT_FOUND here is a resolution
+        // failure (for example a volume with no DOS name), not a missing file.
+        ec = std::make_error_code(std::errc::io_error);
+        return {};
+    }
+    std::vector<wchar_t> buffer(size);
+    const DWORD count = GetFinalPathNameByHandleW(handle, buffer.data(), size,
+                                                 FILE_NAME_NORMALIZED);
+    if (!count || count >= size) {
+        ec = std::make_error_code(std::errc::io_error);
+        return {};
+    }
+    std::wstring path(buffer.data(), count);
+    // Convert extended DOS/UNC prefixes back to paths usable by CRT asset I/O.
+    if (path.compare(0, 8, L"\\\\?\\UNC\\") == 0)
+        path = L"\\\\" + path.substr(8);
+    else if (path.compare(0, 4, L"\\\\?\\") == 0 && path.size() > 5 && path[5] == L':')
+        path.erase(0, 4);
+    ec.clear();
+    return std::filesystem::path(path).generic_string();
+#else
+    const auto canonical = std::filesystem::canonical(p, ec);
+    // Resolve links as realpath did, and use '/' on Windows as well as POSIX.
+    return ec ? std::string{} : canonical.generic_string();
+#endif
+}
+
+bool isMissingPath(const std::error_code& ec) {
+#ifdef _WIN32
+    return ec.category() == std::system_category() &&
+           (ec.value() == ERROR_FILE_NOT_FOUND || ec.value() == ERROR_PATH_NOT_FOUND);
+#else
+    return ec == std::errc::no_such_file_or_directory || ec == std::errc::not_a_directory;
+#endif
+}
+
+bool isUnder(const std::string& root, const std::string& path) {
+    return path.size() >= root.size() &&
+           path.compare(0, root.size(), root) == 0 &&
+           (path.size() == root.size() || root.back() == '/' ||
+            path[root.size()] == '/');
 }
 
 } // namespace
@@ -83,18 +145,22 @@ bool pathResolveUnder(const std::string& root, const std::string& rel,
                       std::string& out, std::string& err) {
     std::string norm;
     if (!normalizeRel(rel, norm, err)) return false;
-    // Ensure root has no trailing slash for clean join (except "/")
-    std::string r = root;
-    while (r.size() > 1 && r.back() == '/') r.pop_back();
-    out = r + "/" + norm;
+    // Keep filesystem roots intact (C:/ must never become drive-relative C:).
+    std::filesystem::path r(root);
+    while (r != r.root_path() && !r.has_filename()) r = r.parent_path();
+    out = (r / std::filesystem::path(norm)).generic_string();
 
-    // If the joined path already exists, realpath both and require prefix.
-    std::string aRoot = absPath(r);
-    std::string aOut = absPath(out);
-    if (!aRoot.empty() && !aOut.empty()) {
-        if (aOut.size() < aRoot.size() ||
-            aOut.compare(0, aRoot.size(), aRoot) != 0 ||
-            (aOut.size() > aRoot.size() && aOut[aRoot.size()] != '/')) {
+    // If the joined path already exists, canonicalize both and require prefix.
+    std::error_code ec;
+    std::string aRoot = absPath(r.string(), ec);
+    if (aRoot.empty()) {
+        err = "cannot resolve game directory";
+        out.clear();
+        return false;
+    }
+    std::string aOut = absPath(out, ec);
+    if (!aOut.empty()) {
+        if (!isUnder(aRoot, aOut)) {
             err = "path escapes game directory";
             out.clear();
             return false;
@@ -102,21 +168,28 @@ bool pathResolveUnder(const std::string& root, const std::string& rel,
         out = aOut;
         return true;
     }
+    if (!isMissingPath(ec)) {
+        err = "cannot resolve game path";
+        out.clear();
+        return false;
+    }
     // File may not exist yet (load will fail later) — still reject if any
     // parent that does exist escapes. Walk up creating a candidate check.
     std::string cand = out;
     while (!cand.empty()) {
-        std::string a = absPath(cand);
+        std::string a = absPath(cand, ec);
         if (!a.empty()) {
-            if (!aRoot.empty()) {
-                if (a.size() < aRoot.size() ||
-                    a.compare(0, aRoot.size(), aRoot) != 0) {
-                    err = "path escapes game directory";
-                    out.clear();
-                    return false;
-                }
+            if (!isUnder(aRoot, a)) {
+                err = "path escapes game directory";
+                out.clear();
+                return false;
             }
             break;
+        }
+        if (!isMissingPath(ec)) {
+            err = "cannot resolve game path";
+            out.clear();
+            return false;
         }
         size_t slash = cand.find_last_of('/');
         if (slash == std::string::npos || slash == 0) break;

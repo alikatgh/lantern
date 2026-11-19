@@ -6,6 +6,20 @@ while the stack is pre-1.0 (`engine=0.7` in `.lant` manifests).
 
 ## [Unreleased]
 
+### Windows package and path portability
+
+- Address the four MinGW 13.1.0 issues reported by
+  [@yokamak's Lantern 0.8.0 build guide](https://qiita.com/yokamak/items/2e8932734ad7f14cde14):
+  parent-directory creation, canonical paths, temporary extraction directories,
+  and Windows path separators. Resolve Windows targets through native file
+  handles so junctions remain subject to confinement; use atomic temporary-directory creation.
+- Replace POSIX-only compile-check file flags on Windows with same-handle Win32
+  reads that reject final reparse points and retain the source-size limit.
+- Cover nested extraction, paths with spaces, valid asset loads and symlink
+  escapes with a filesystem-only regression target. Native Windows build/demo
+  validation remains outstanding; newer audio and isolated-save code also still
+  use POSIX APIs, so this is not a complete Windows port of current main.
+
 ### Agentic 2D engine primitives and frame telemetry
 
 - Add `lt_sprite_grounded` (`lt.sprite_grounded`), `lt_glow_radial` (`lt.glow_radial`), `lt_texture_has_alpha` (`lt.texture_has_alpha`), `lt_draw_count` (`lt.draw_count`), and advertise `agentic-2d-v1` in `render_capabilities`.
